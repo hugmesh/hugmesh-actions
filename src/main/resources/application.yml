@@ -33,6 +33,17 @@ app:
       initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
       systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}
       games-role:         ${GM_SYNC_GAMES_ROLE:admin}
+    # GitHub-org admin auto-grant. Triggered on demand by the
+    # registration remote (via POST /api/registration/github-org-admin/
+    # evaluate). The orgs CSV is the set of GitHub organisations whose
+    # admins should automatically map to snapdragon.systems admin.
+    gh-org-admin:
+      orgs:               ${GH_ORG_ADMIN_ORGS:Snapdragon-Systems,Snapdragon}
+      systems-admin-role: ${GH_ORG_ADMIN_ROLE:admin}
+  github:
+    # Override for GitHub Enterprise installs. Public default is fine
+    # for the SaaS GitHub the project ships on.
+    base-url:             ${GITHUB_API_BASE_URL:https://api.github.com}
 
 # Circuit breaker over each Casdoor side — opens on 5 consecutive
 # failures, half-opens after 30 s. A degraded Casdoor doesn't pile
@@ -46,6 +57,16 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+      github:
+        # GitHub rate-limits the unauthenticated endpoints harder
+        # than authenticated ones; tune slightly tighter than the
+        # Casdoor breaker so a single rate-limited 5xx doesn't
+        # cascade through every sign-up evaluation.
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 2
 
 # /actuator/prometheus exposes the gm_sync counters for scraping.
 management:

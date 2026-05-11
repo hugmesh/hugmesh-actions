@@ -12,6 +12,23 @@ Propagates the `game-master` role from snapdragon.systems Casdoor
 into the `admin` role on snapdragon.games Casdoor. Runs every 60 s
 by default (`app.actions.game-master-sync.interval-ms`).
 
+### `GitHubOrgAdminGrantAction`
+
+Auto-grants snapdragon.systems admin to GitHub-authenticated users
+who have admin authority on any repo in (or org-level admin
+membership of) a configured Snapdragon GitHub organisation
+(default: `Snapdragon-Systems`, `Snapdragon`). Two entry points:
+
+| Caller | Endpoint | Behaviour |
+|---|---|---|
+| Sign-up flow | `POST /api/registration/github-org-admin/evaluate` | Returns the granted Casdoor member id on success; 403 with boilerplate when the user has no Snapdragon admin reach. |
+| Reconciliation (scheduled, follow-up) | n/a | Revokes admin from users whose GitHub admin reach has been removed. |
+
+Metrics: `actions.gh_org_admin.{granted, revoked, denied, errors}`.
+Resilience4j circuit breaker on the `github` instance — a GitHub
+outage opens the breaker so a sign-up evaluation fails fast instead
+of piling up retries.
+
 Behaviour:
 
 | systems.game-master | games.admin (before) | games.admin (after) |

@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import systems.snapdragon.actions.casdoor.CasdoorClient;
+import systems.snapdragon.actions.github.GitHubClient;
 
 /**
  * Wire the two Casdoor clients the sync action needs: one for
@@ -35,5 +36,15 @@ public class CasdoorClientsConfig {
             @Value("${app.casdoor.games.client-secret}") String clientSecret,
             @Value("${app.casdoor.games.organization}") String organization) {
         return new CasdoorClient(baseUrl, clientId, clientSecret, organization, "games");
+    }
+
+    /** GitHub REST client used by the {@code GitHubOrgAdminGrantAction}.
+     *  The base URL is configurable so a self-hosted GitHub Enterprise
+     *  install can be pointed at without changing the action's call
+     *  sites; defaults to the public api.github.com. */
+    @Bean
+    public GitHubClient gitHubClient(
+            @Value("${app.github.base-url:https://api.github.com}") String baseUrl) {
+        return new GitHubClient(baseUrl);
     }
 }
