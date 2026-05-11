@@ -9,6 +9,18 @@ spring:
   application:
     name: snapdragon-actions
 
+  # OAuth2 resource server — validates Casdoor-issued JWTs on
+  # /api/registration/** (the RegistrationController endpoint).
+  # Snapdragon-systems Casdoor is the canonical issuer for the
+  # actions service; the games-side Casdoor isn't trusted for this
+  # surface because the action mutates state in BOTH instances.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri:  ${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}
+          jwk-set-uri: ${CASDOOR_SYSTEMS_JWKS_URI:${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}/.well-known/jwks}
+
 # Casdoor endpoints + admin credentials — one block per side.
 # Production deploys set these via env file / secret manager;
 # the dev compose stack provides sane defaults pointing at two
@@ -68,7 +80,12 @@ resilience4j:
         wait-duration-in-open-state: 60s
         permitted-number-of-calls-in-half-open-state: 2
 
-# /actuator/prometheus exposes the gm_sync counters for scraping.
+# Management exposure — same policy across the platform:
+#   health + info       → public (probes)
+#   metrics + prometheus → ROLE_GAME-MASTER (gated by SecurityConfig
+#                          path-matcher on /actuator/**)
+# SecurityConfig restricts the gated tier to ROLE_GAME-MASTER as
+# defence-in-depth on top of this exposure list.
 management:
   endpoints:
     web:
@@ -77,6 +94,7 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      roles: GAME-MASTER
 
 logging:
   level:
