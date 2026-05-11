@@ -1,0 +1,97 @@
+# Dev compose stack for snapdragon-actions.
+#
+# Brings up the action service against TWO Casdoor instances (systems
+# + games) so the game-master → admin sync can be exercised end-to-end
+# without depending on production endpoints. Each Casdoor has its own
+# Postgres for state.
+#
+# Note: the actions service itself is stateless — restarting it
+# replays the next sync tick against the live Casdoor state.
+
+services:
+
+  pg-systems:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: casdoor
+      POSTGRES_USER: casdoor
+      POSTGRES_PASSWORD: casdoor
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U casdoor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata_systems:/var/lib/postgresql/data
+
+  pg-games:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: casdoor
+      POSTGRES_USER: casdoor
+      POSTGRES_PASSWORD: casdoor
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U casdoor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata_games:/var/lib/postgresql/data
+
+  casdoor-systems:
+    image: casbin/casdoor:latest
+    depends_on:
+      pg-systems:
+        condition: service_healthy
+    environment:
+      RUNNING_IN_DOCKER: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "127.0.0.1:8001:8000"
+
+  casdoor-games:
+    image: casbin/casdoor:latest
+    depends_on:
+      pg-games:
+        condition: service_healthy
+    environment:
+      RUNNING_IN_DOCKER: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "127.0.0.1:8002:8000"
+
+  snapdragon-actions:
+    image: snapdragon-systems/actions:dev
+    build:
+      context: .
+    depends_on:
+      casdoor-systems:
+        condition: service_healthy
+      casdoor-games:
+        condition: service_healthy
+    environment:
+      CASDOOR_SYSTEMS_URL:           http://casdoor-systems:8000
+      CASDOOR_SYSTEMS_CLIENT_ID:     ${CASDOOR_SYSTEMS_CLIENT_ID:-snapdragon-actions}
+      CASDOOR_SYSTEMS_CLIENT_SECRET: ${CASDOOR_SYSTEMS_CLIENT_SECRET:-}
+      CASDOOR_SYSTEMS_ORG:           snapdragon-systems
+      CASDOOR_GAMES_URL:             http://casdoor-games:8000
+      CASDOOR_GAMES_CLIENT_ID:       ${CASDOOR_GAMES_CLIENT_ID:-snapdragon-actions}
+      CASDOOR_GAMES_CLIENT_SECRET:   ${CASDOOR_GAMES_CLIENT_SECRET:-}
+      CASDOOR_GAMES_ORG:             threewizards
+    ports:
+      - "127.0.0.1:8090:8090"
+    restart: on-failure
+
+volumes:
+  pgdata_systems:
+  pgdata_games:

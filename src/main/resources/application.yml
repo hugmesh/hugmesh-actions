@@ -1,0 +1,66 @@
+# Snapdragon Actions — base configuration.
+#
+# The Docker image bakes this in; per-deployment overrides come from
+# env vars referenced below. The service polls two Casdoor instances:
+# snapdragon.systems (source of truth for game-master role) and
+# snapdragon.games (target of admin role propagation).
+
+spring:
+  application:
+    name: snapdragon-actions
+
+# Casdoor endpoints + admin credentials — one block per side.
+# Production deploys set these via env file / secret manager;
+# the dev compose stack provides sane defaults pointing at two
+# local Casdoor containers.
+app:
+  casdoor:
+    systems:
+      base-url:      ${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}
+      client-id:     ${CASDOOR_SYSTEMS_CLIENT_ID:snapdragon-actions}
+      client-secret: ${CASDOOR_SYSTEMS_CLIENT_SECRET:}
+      organization:  ${CASDOOR_SYSTEMS_ORG:snapdragon-systems}
+    games:
+      base-url:      ${CASDOOR_GAMES_URL:http://casdoor-games:8000}
+      client-id:     ${CASDOOR_GAMES_CLIENT_ID:snapdragon-actions}
+      client-secret: ${CASDOOR_GAMES_CLIENT_SECRET:}
+      organization:  ${CASDOOR_GAMES_ORG:threewizards}
+  actions:
+    game-master-sync:
+      # 60 s default — propagation latency is "next tick after
+      # an admin flips game-master on snapdragon.systems".
+      interval-ms:        ${GM_SYNC_INTERVAL_MS:60000}
+      initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
+      systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}
+      games-role:         ${GM_SYNC_GAMES_ROLE:admin}
+
+# Circuit breaker over each Casdoor side — opens on 5 consecutive
+# failures, half-opens after 30 s. A degraded Casdoor doesn't pile
+# up tick work; the next successful tick reconciles.
+resilience4j:
+  circuitbreaker:
+    instances:
+      casdoor:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
+# /actuator/prometheus exposes the gm_sync counters for scraping.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    "[systems.snapdragon.actions]": INFO
+    "[systems.snapdragon.actions.sync]": INFO
+
+server:
+  port: ${PORT:8090}
