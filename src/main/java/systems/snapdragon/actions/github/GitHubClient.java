@@ -1,6 +1,7 @@
 package systems.snapdragon.actions.github;
 
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -44,6 +45,13 @@ public class GitHubClient {
                 .build();
     }
 
+    /** Test seam — inject a pre-built {@link WebClient} (e.g. backed by a
+     *  stubbed {@code ExchangeFunction}) to drive the real endpoint logic
+     *  against canned GitHub responses without a live server. */
+    GitHubClient(WebClient http) {
+        this.http = http;
+    }
+
     public record User(String login, Long id) {}
     public record OrgMembership(String org, String role) {}
     public record RepoPermission(String fullName, boolean admin) {}
@@ -59,7 +67,19 @@ public class GitHubClient {
                         body.get("id") instanceof Number n ? n.longValue() : null));
     }
 
-    /** True iff the user is an admin of the named org. */
+    /**
+     * True iff the user is an admin of the named org.
+     *
+     * <p>Error handling is evidence-gated: a definitive {@code 404}
+     * means the user is genuinely not a member of that org, so it
+     * resolves to {@code false} (no admin reach there). ANY OTHER error
+     * — a transient {@code 5xx}, a secondary-rate-limit {@code 403},
+     * a network blip — is inconclusive and is propagated, NOT swallowed
+     * to {@code false}. Swallowing it would read the user's reach as
+     * empty and wrongfully revoke an org-level-only admin during an
+     * outage. Propagating it lets the reconcile loop skip the user this
+     * tick (same as missing evidence) and re-check next tick.
+     */
     public Mono<Boolean> isOrgAdmin(String bearer, String org) {
         return http.get()
                 .uri("/user/memberships/orgs/{org}", org)
@@ -67,7 +87,17 @@ public class GitHubClient {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .map(body -> "admin".equalsIgnoreCase((String) body.get("role")))
-                .onErrorReturn(false);    // 404 = not a member of that org
+                .onErrorResume(GitHubClient::isDefinitiveNotMember,
+                        e -> Mono.just(false));    // 404 = genuinely not a member of that org
+    }
+
+    /** True only for a definitive {@code 404 Not Found} — the GitHub
+     *  signal for "this user is not a member of that org". Every other
+     *  status / error is transient or inconclusive and must NOT be
+     *  collapsed to "no reach". */
+    static boolean isDefinitiveNotMember(Throwable e) {
+        return e instanceof WebClientResponseException w
+                && w.getStatusCode().value() == 404;
     }
 
     /** Every repo the user can reach (owner / collaborator / member),

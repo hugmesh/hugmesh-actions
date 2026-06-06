@@ -52,6 +52,21 @@ app:
     gh-org-admin:
       orgs:               ${GH_ORG_ADMIN_ORGS:Snapdragon-Systems,Snapdragon}
       systems-admin-role: ${GH_ORG_ADMIN_ROLE:admin}
+      # How long a GitHub access_token captured at sign-up stays usable
+      # for the revoke reconciler. After it ages out the reconciler has
+      # no fresh evidence for that admin and leaves them untouched until
+      # their next sign-in re-seeds a token. ISO-8601 duration.
+      token-ttl:          ${GH_ORG_ADMIN_TOKEN_TTL:PT24H}
+      # Scheduled REVOKE reconciler (audit gap #5). Walks current
+      # systems-admin members and strips admin from any whose GitHub
+      # org-admin reach has been removed. Prune-only + evidence-gated:
+      # it never revokes an admin we lack a fresh GitHub token for, and
+      # never touches a still-eligible one. 6 h default — losing GitHub
+      # admin is not an emergency-revoke event; the next-sign-in path
+      # covers it sooner.
+      reconcile:
+        interval-ms:      ${GH_ORG_ADMIN_RECONCILE_INTERVAL_MS:21600000}
+        initial-delay-ms: ${GH_ORG_ADMIN_RECONCILE_INITIAL_DELAY_MS:30000}
   github:
     # Override for GitHub Enterprise installs. Public default is fine
     # for the SaaS GitHub the project ships on.

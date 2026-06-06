@@ -8,7 +8,9 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import systems.snapdragon.actions.casdoor.CasdoorClient;
 import systems.snapdragon.actions.github.GitHubClient;
+import systems.snapdragon.actions.github.GitHubTokenCache;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -27,6 +29,7 @@ class GitHubOrgAdminGrantActionTest {
         when(casdoor.organization()).thenReturn("snapdragon-systems");
         return new GitHubOrgAdminGrantAction(
                 github, casdoor,
+                new GitHubTokenCache(Duration.ofHours(24)),
                 "Snapdragon-Systems,Snapdragon",
                 "admin",
                 new SimpleMeterRegistry());
