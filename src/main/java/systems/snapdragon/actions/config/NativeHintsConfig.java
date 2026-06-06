@@ -34,14 +34,28 @@ import systems.snapdragon.actions.web.RegistrationController;
  *       resilience4j's reactor operator via Spring AOP. Registering the
  *       action classes for reflection (incl. declared methods) keeps the
  *       advised methods + the AOT-generated proxy reachable.</li>
+ *   <li><b>SpringDoc Swagger-UI static resources</b> — the Swagger-UI
+ *       HTML / JS / CSS ship as classpath resources inside the
+ *       {@code springdoc-openapi-starter-webflux-ui} jar's
+ *       {@code META-INF/resources/webjars/swagger-ui/} tree.
+ *       native-image strips unreferenced classpath resources by default,
+ *       which 404s the UI; the include patterns below keep it reachable.
+ *       The {@code /v3/api-docs} JSON spec is generated reflectively
+ *       from the {@code io.swagger.v3.oas.models} types — SpringDoc
+ *       ships its own {@code reachability-metadata.json} for those, and
+ *       the parent's {@code add-reachability-metadata} goal pulls it in,
+ *       so no per-type reflection hint is registered here for the
+ *       model classes.</li>
  * </ul>
  *
  * <p>Best-effort: this is the minimal set the source obviously needs. A
  * full {@code -Pnative native:compile} in a GraalVM-equipped environment
  * is the authoritative check; the {@code add-reachability-metadata} goal
  * (contributed by the parent's {@code native} profile) supplies the
- * library-side metadata for the WebClient/Netty/Jackson/resilience4j
- * jars on top of these app-specific hints.
+ * library-side metadata for the WebClient/Netty/Jackson/resilience4j/
+ * springdoc jars on top of these app-specific hints. If the native
+ * Swagger-UI still 404s after this, widen the resource pattern to the
+ * full {@code META-INF/resources/webjars/.*} tree.</p>
  */
 @Configuration(proxyBeanMethods = false)
 @ImportRuntimeHints(NativeHintsConfig.Hints.class)
@@ -64,6 +78,16 @@ public class NativeHintsConfig {
                     .registerType(GameMasterAdminSyncAction.class, proxyTargetCategories())
                     .registerType(GitHubOrgAdminGrantAction.class, proxyTargetCategories())
                     .registerType(GitHubOrgAdminReconcileAction.class, proxyTargetCategories());
+
+            // --- SpringDoc Swagger-UI static resources ---------------
+            // The Swagger-UI assets ship as classpath resources in the
+            // springdoc-openapi-starter-webflux-ui jar; native-image
+            // would otherwise strip them and 404 the UI. The spec JSON
+            // at /v3/api-docs is covered by SpringDoc's own bundled
+            // reachability-metadata (pulled in by add-reachability-metadata).
+            hints.resources()
+                    .registerPattern("META-INF/resources/webjars/swagger-ui/*")
+                    .registerPattern("META-INF/resources/webjars/swagger-ui/**");
         }
 
         private static MemberCategory[] dtoCategories() {

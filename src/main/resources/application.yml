@@ -111,6 +111,26 @@ management:
       show-details: when-authorized
       roles: GAME-MASTER
 
+# SpringDoc OpenAPI — publishes the OpenAPI 3 spec at /v3/api-docs and
+# Swagger-UI at /swagger-ui.html. This is the source consumed by the
+# platform's ng-openapi-gen typed-clients, the admin api-docs/SwaggerUI
+# federated module, and the docs pipeline. The spec paths are gated by
+# SecurityConfig (permitAll under dev/test so gen:fetch can curl it
+# locally; ROLE_ADMIN in prod). Mirrors the snapdragon.games BFF.
+springdoc:
+  api-docs:
+    enabled: true
+    # Canonical JSON spec path the docs pipeline + ng-openapi-gen poll.
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+  # Only the action's own REST surface belongs in the published spec —
+  # the SpringDoc / Swagger-UI / actuator handlers are framework plumbing
+  # and would clutter the generated typed-client. Scope the scan to this
+  # service's web package.
+  packages-to-scan: systems.snapdragon.actions.web
+
 logging:
   level:
     "[systems.snapdragon.actions]": INFO
