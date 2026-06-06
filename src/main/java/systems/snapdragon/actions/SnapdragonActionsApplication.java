@@ -1,5 +1,7 @@
 package systems.snapdragon.actions;
 
+import io.swagger.v3.oas.annotations.OpenAPIDefinition;
+import io.swagger.v3.oas.annotations.info.Info;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -38,6 +40,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @EnableScheduling
+@OpenAPIDefinition(
+        info = @Info(
+                title = "Snapdragon Actions API",
+                version = "0.0.1",
+                description = "Platform-wide scheduled-actions + registration API "
+                        + "(cross-stack role sync, GitHub-org admin grant). The "
+                        + "/v3/api-docs spec is the source for the platform's "
+                        + "ng-openapi-gen typed-clients + the admin api-docs module."))
 public class SnapdragonActionsApplication {
 
 	public static void main(String[] args) {

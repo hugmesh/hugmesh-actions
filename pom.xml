@@ -55,6 +55,19 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
 		</dependency>
+		<!-- SpringDoc — generates the OpenAPI 3 spec at /v3/api-docs and
+		     serves Swagger-UI at /swagger-ui.html. This is the source the
+		     platform's ng-openapi-gen typed-clients, the admin
+		     api-docs/SwaggerUI federated module, and the docs pipeline all
+		     consume. webflux-ui variant matches the reactive stack (the
+		     servlet variant would drag in spring-webmvc and break the
+		     non-blocking model). Version pinned to the SAME line the
+		     snapdragon.games BFF uses (2.7.0 → Spring Boot 3.5.x). -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+			<version>2.7.0</version>
+		</dependency>
 		<!-- Resilience4j circuit breaker — wraps the per-Casdoor-call
 		     side-effect so a slow Casdoor doesn't pile up sync work. -->
 		<dependency>

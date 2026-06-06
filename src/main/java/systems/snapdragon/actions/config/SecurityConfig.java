@@ -2,6 +2,7 @@ package systems.snapdragon.actions.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
@@ -38,6 +39,14 @@ import java.util.Map;
  *       token; an external attacker who reaches this endpoint
  *       without one is rejected at the gateway anyway, but
  *       defence-in-depth.</li>
+ *   <li>{@code /v3/api-docs/**} + {@code /swagger-ui/**} +
+ *       {@code /swagger-ui.html} + {@code /webjars/swagger-ui/**} —
+ *       the SpringDoc OpenAPI spec + Swagger-UI. Profile-split, same
+ *       as the snapdragon.games BFF: <b>permitAll under dev/test</b>
+ *       (so the platform's {@code gen:fetch} can curl the spec locally
+ *       without a token) and <b>ROLE_ADMIN otherwise / in prod</b>
+ *       (so the spec is never publicly reachable on a deployed
+ *       instance).</li>
  *   <li>everything else — authenticated.</li>
  * </ul>
  *
@@ -51,7 +60,50 @@ import java.util.Map;
 @EnableReactiveMethodSecurity
 public class SecurityConfig {
 
+    /**
+     * SpringDoc OpenAPI + Swagger-UI paths. Gated differently per
+     * profile (permitAll in dev/test, ROLE_ADMIN in prod). Kept in one
+     * place so the dev and prod chains can't drift on the path list.
+     */
+    private static final String[] SPEC_PATHS = {
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html",
+            "/webjars/swagger-ui/**",
+    };
+
+    /**
+     * Dev / test profile: the OpenAPI spec + Swagger-UI are PUBLIC so the
+     * platform's {@code ng-openapi-gen} {@code gen:fetch} step can curl
+     * {@code /v3/api-docs} locally without an admin token. Activate with
+     * {@code SPRING_PROFILES_ACTIVE=dev} (or {@code test}). Every other
+     * rule is identical to the prod chain.
+     */
     @Bean
+    @Profile({"dev", "test"})
+    SecurityWebFilterChain devFilterChain(ServerHttpSecurity http) {
+        return http
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .authorizeExchange(ex -> {
+                    ex.pathMatchers("/actuator/health", "/actuator/health/**",
+                                    "/actuator/info").permitAll();
+                    ex.pathMatchers("/actuator/**").hasRole("GAME-MASTER");
+                    ex.pathMatchers(SPEC_PATHS).permitAll();
+                    ex.pathMatchers("/api/registration/**").hasRole("ADMIN");
+                    ex.anyExchange().authenticated();
+                })
+                .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter())))
+                .build();
+    }
+
+    /**
+     * Production profile (default when dev/test is not active): the
+     * OpenAPI spec + Swagger-UI require ROLE_ADMIN so they are never
+     * publicly reachable on a deployed instance. No other route is
+     * loosened relative to the dev chain.
+     */
+    @Bean
+    @Profile("!dev & !test")
     SecurityWebFilterChain filterChain(ServerHttpSecurity http) {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
@@ -59,6 +111,7 @@ public class SecurityConfig {
                     ex.pathMatchers("/actuator/health", "/actuator/health/**",
                                     "/actuator/info").permitAll();
                     ex.pathMatchers("/actuator/**").hasRole("GAME-MASTER");
+                    ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
                     ex.pathMatchers("/api/registration/**").hasRole("ADMIN");
                     ex.anyExchange().authenticated();
                 })
