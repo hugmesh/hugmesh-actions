@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -69,8 +70,8 @@ public class GameMasterAdminSyncAction {
             new AtomicReference<>(Instant.EPOCH);
 
     public GameMasterAdminSyncAction(
-            CasdoorClient systemsClient,
-            CasdoorClient gamesClient,
+            @Qualifier("systemsCasdoorClient") CasdoorClient systemsClient,
+            @Qualifier("gamesCasdoorClient") CasdoorClient gamesClient,
             @Value("${app.actions.game-master-sync.systems-role:game-master}") String systemsRoleName,
             @Value("${app.actions.game-master-sync.games-role:admin}") String gamesRoleName,
             MeterRegistry registry) {

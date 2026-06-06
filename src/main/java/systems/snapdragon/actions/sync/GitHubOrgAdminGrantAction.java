@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -70,7 +71,7 @@ public class GitHubOrgAdminGrantAction {
 
     public GitHubOrgAdminGrantAction(
             GitHubClient github,
-            CasdoorClient systemsCasdoor,
+            @Qualifier("systemsCasdoorClient") CasdoorClient systemsCasdoor,
             GitHubTokenCache tokenCache,
             @Value("${app.actions.gh-org-admin.orgs:Snapdragon-Systems,Snapdragon}") String orgsCsv,
             @Value("${app.actions.gh-org-admin.systems-admin-role:admin}") String systemsAdminRole,
