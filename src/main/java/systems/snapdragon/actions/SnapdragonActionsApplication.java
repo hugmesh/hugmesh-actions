@@ -15,6 +15,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *       {@code game-master} role from snapdragon.systems Casdoor
  *       into the admin role on snapdragon.games Casdoor. Runs every
  *       {@code app.actions.game-master-sync.interval} (default 60 s).</li>
+ *   <li>{@code GitHubOrgAdminGrantAction} — auto-grants
+ *       snapdragon.systems admin to users with admin reach on a
+ *       configured Snapdragon GitHub org (on-demand, from the
+ *       registration flow).</li>
+ *   <li>{@code GitHubOrgAdminReconcileAction} — scheduled revoke loop
+ *       that strips snapdragon.systems admin from users whose GitHub
+ *       org-admin reach has since been removed. Runs every
+ *       {@code app.actions.gh-org-admin.reconcile.interval-ms}
+ *       (default 6 h).</li>
  * </ul>
  *
  * <p>The service is INTENTIONALLY stateless — every tick reads source-

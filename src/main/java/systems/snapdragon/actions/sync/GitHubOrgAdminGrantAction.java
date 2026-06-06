@@ -12,6 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import systems.snapdragon.actions.casdoor.CasdoorClient;
 import systems.snapdragon.actions.github.GitHubClient;
+import systems.snapdragon.actions.github.GitHubTokenCache;
 
 import java.util.HashSet;
 import java.util.List;
@@ -58,6 +59,7 @@ public class GitHubOrgAdminGrantAction {
 
     private final GitHubClient github;
     private final CasdoorClient systemsCasdoor;
+    private final GitHubTokenCache tokenCache;
     private final Set<String> snapdragonOrgs;
     private final String systemsAdminRole;
 
@@ -69,11 +71,13 @@ public class GitHubOrgAdminGrantAction {
     public GitHubOrgAdminGrantAction(
             GitHubClient github,
             CasdoorClient systemsCasdoor,
+            GitHubTokenCache tokenCache,
             @Value("${app.actions.gh-org-admin.orgs:Snapdragon-Systems,Snapdragon}") String orgsCsv,
             @Value("${app.actions.gh-org-admin.systems-admin-role:admin}") String systemsAdminRole,
             MeterRegistry registry) {
         this.github = github;
         this.systemsCasdoor = systemsCasdoor;
+        this.tokenCache = tokenCache;
         this.snapdragonOrgs = parseCsv(orgsCsv);
         this.systemsAdminRole = systemsAdminRole;
         this.granted = Counter.builder("actions.gh_org_admin.granted")
@@ -100,6 +104,10 @@ public class GitHubOrgAdminGrantAction {
      */
     @CircuitBreaker(name = "github")
     public Mono<String> evaluateAndGrant(String githubBearer, String snapdragonUsername) {
+        // Remember this user's token so the scheduled revoke reconciler
+        // can re-ask GitHub on their behalf later — GitHub admin reach is
+        // only visible through the user's own token.
+        tokenCache.put(snapdragonUsername, githubBearer);
         return github.snapdragonAdminOrgs(githubBearer, snapdragonOrgs)
             .flatMap(orgs -> {
                 if (orgs.isEmpty()) {
@@ -137,15 +145,21 @@ public class GitHubOrgAdminGrantAction {
      * admin and revokes if their GitHub reach has fallen below the
      * threshold. The caller passes the GitHub bearer that's been
      * cached (or freshly minted via the OAuth client's refresh-token
-     * flow). Designed to be called from a periodic task in a
-     * follow-up; this skeleton encapsulates the revoke side without
-     * requiring the cache layer to exist yet.
+     * flow).
+     *
+     * <p>This is the on-demand, single-user revoke path kept intact
+     * for the grant/sign-in flow. The scheduled reconciler does NOT
+     * fan this out per-user — concurrent per-user read-modify-writes
+     * against the one role list lost updates (last-writer-wins). It
+     * instead uses {@link #isStillEligible} (read-only, safe to run
+     * concurrently) to collect the losers and {@link #revokeAll} to
+     * apply them in a single atomic-per-tick read-modify-write.
      */
     @CircuitBreaker(name = "github")
     public Mono<Boolean> revokeIfNoLongerEligible(String githubBearer, String snapdragonUsername) {
-        return github.snapdragonAdminOrgs(githubBearer, snapdragonOrgs)
-            .flatMap(orgs -> {
-                if (!orgs.isEmpty()) return Mono.just(false);
+        return isStillEligible(githubBearer)
+            .flatMap(eligible -> {
+                if (Boolean.TRUE.equals(eligible)) return Mono.just(false);
                 String member = systemsCasdoor.organization() + "/" + snapdragonUsername;
                 return systemsCasdoor.getRoleMembers(systemsAdminRole)
                     .flatMap(current -> {
@@ -154,12 +168,98 @@ public class GitHubOrgAdminGrantAction {
                         next.remove(member);
                         return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
                             .doOnNext(ok -> {
-                                if (Boolean.TRUE.equals(ok)) revoked.increment();
+                                if (Boolean.TRUE.equals(ok)) {
+                                    revoked.increment();
+                                    // No longer an admin → no reason to keep
+                                    // replaying their GitHub token.
+                                    tokenCache.evict(snapdragonUsername);
+                                }
                             })
                             .thenReturn(true);
                     });
             });
     }
+
+    /**
+     * READ-ONLY eligibility probe for a single user — replays their
+     * GitHub token and reports whether they still hold any Snapdragon
+     * admin reach. Performs NO Casdoor write, so it is safe for the
+     * reconciler to run many of these concurrently.
+     *
+     * <p>The Mono ERRORS (rather than resolving false) when GitHub
+     * reach can't be determined — e.g. a transient 5xx / rate-limit
+     * surfaced by {@link GitHubClient#isOrgAdmin}. The reconciler must
+     * treat that error as inconclusive evidence and SKIP the user this
+     * tick, never revoke. Only a clean {@code Set.of()} result means
+     * "genuinely lost all reach".
+     */
+    @CircuitBreaker(name = "github")
+    public Mono<Boolean> isStillEligible(String githubBearer) {
+        return github.snapdragonAdminOrgs(githubBearer, snapdragonOrgs)
+            .map(orgs -> !orgs.isEmpty());
+    }
+
+    /**
+     * Batch revoke for the reconcile tick — removes every member in
+     * {@code usernamesToRevoke} from the systems-admin role in a SINGLE
+     * read-modify-write: one {@code getRoleMembers} → {@code removeAll}
+     * → one {@code setRoleMembers}. This is the fix for the lost-update
+     * race: the reconciler evaluates eligibility concurrently but funnels
+     * the actual mutation through this one serialized write per tick, so
+     * two admins losing reach in the same tick can never overwrite each
+     * other's removal.
+     *
+     * <p>Idempotent and prune-only: an empty input, or a set whose
+     * members are all already absent, writes NOTHING (returns false).
+     * Evicts the cached token of every member actually removed.
+     */
+    @CircuitBreaker(name = "github")
+    public Mono<Boolean> revokeAll(Set<String> usernamesToRevoke) {
+        if (usernamesToRevoke == null || usernamesToRevoke.isEmpty()) {
+            return Mono.just(false);
+        }
+        Set<String> membersToRevoke = new HashSet<>();
+        for (String username : usernamesToRevoke) {
+            membersToRevoke.add(systemsCasdoor.organization() + "/" + username);
+        }
+        return systemsCasdoor.getRoleMembers(systemsAdminRole)
+            .flatMap(current -> {
+                java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
+                boolean changed = next.removeAll(membersToRevoke);
+                if (!changed) {
+                    // Nobody we were asked to revoke is actually still a
+                    // member — no-op tick, write nothing.
+                    return Mono.just(false);
+                }
+                return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
+                    .doOnNext(ok -> {
+                        if (Boolean.TRUE.equals(ok)) {
+                            for (String username : usernamesToRevoke) {
+                                String member = systemsCasdoor.organization() + "/" + username;
+                                if (current.contains(member)) {
+                                    revoked.increment();
+                                    tokenCache.evict(username);
+                                }
+                            }
+                        }
+                    });
+            });
+    }
+
+    /** Casdoor member identifier ({@code <org>/<username>}) for a
+     *  snapdragon.systems username — the shape Casdoor stores role
+     *  members in. */
+    public String memberIdFor(String snapdragonUsername) {
+        return systemsCasdoor.organization() + "/" + snapdragonUsername;
+    }
+
+    /** The Casdoor role this action grants/revokes — the reconciler
+     *  reads its current membership to decide who to re-evaluate. */
+    public String systemsAdminRole() { return systemsAdminRole; }
+
+    /** The Casdoor client used to read current admin membership during
+     *  reconciliation. */
+    public CasdoorClient systemsCasdoor() { return systemsCasdoor; }
 
     Set<String> snapdragonOrgsForTest() { return snapdragonOrgs; }
 

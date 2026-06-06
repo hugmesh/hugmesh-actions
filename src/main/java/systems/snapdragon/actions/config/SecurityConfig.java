@@ -72,39 +72,48 @@ public class SecurityConfig {
         return converter;
     }
 
-    private Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
-        return new Converter<>() {
-            @Override
-            public Flux<GrantedAuthority> convert(Jwt jwt) {
-                List<GrantedAuthority> authorities = new ArrayList<>();
-                authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+    /**
+     * Casdoor claim -> Spring authority mapping. Package-private + static
+     * so it can be unit-tested directly against synthetic {@link Jwt}s:
+     *
+     * <ul>
+     *   <li>every authenticated principal gets a {@code ROLE_USER} floor;</li>
+     *   <li>each {@code roles} entry (a string, or an object with a
+     *       {@code name}) becomes {@code ROLE_<UPPERCASE>};</li>
+     *   <li>each {@code permissions} entry becomes a verbatim authority;</li>
+     *   <li>{@code isAdmin == true} adds {@code ROLE_ADMIN}.</li>
+     * </ul>
+     */
+    static Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
+        return jwt -> {
+            List<GrantedAuthority> authorities = new ArrayList<>();
+            authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
 
-                Object rolesClaim = jwt.getClaim("roles");
-                if (rolesClaim instanceof Collection<?> list) {
-                    for (Object r : list) {
-                        String name = roleNameOf(r);
-                        if (!name.isBlank()) {
-                            authorities.add(new SimpleGrantedAuthority(
-                                    "ROLE_" + name.trim().toUpperCase()));
-                        }
+            Object rolesClaim = jwt.getClaim("roles");
+            if (rolesClaim instanceof Collection<?> list) {
+                for (Object r : list) {
+                    String name = roleNameOf(r);
+                    if (!name.isBlank()) {
+                        authorities.add(new SimpleGrantedAuthority(
+                                "ROLE_" + name.trim().toUpperCase()));
                     }
                 }
-
-                Object permsClaim = jwt.getClaim("permissions");
-                if (permsClaim instanceof Collection<?> list) {
-                    for (Object p : list) {
-                        if (p != null) {
-                            authorities.add(new SimpleGrantedAuthority(p.toString().trim()));
-                        }
-                    }
-                }
-
-                if (Boolean.TRUE.equals(jwt.getClaim("isAdmin"))) {
-                    authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
-                }
-
-                return Flux.fromIterable(authorities);
             }
+
+            Object permsClaim = jwt.getClaim("permissions");
+            if (permsClaim instanceof Collection<?> list) {
+                for (Object p : list) {
+                    if (p != null) {
+                        authorities.add(new SimpleGrantedAuthority(p.toString().trim()));
+                    }
+                }
+            }
+
+            if (Boolean.TRUE.equals(jwt.getClaim("isAdmin"))) {
+                authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+            }
+
+            return Flux.fromIterable(authorities);
         };
     }
 

@@ -77,14 +77,53 @@
 			<artifactId>reactor-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- Spring Security test support — SecurityMockServerConfigurers
+		     .mockJwt() seeds a synthetic Casdoor JWT so the SecurityConfig
+		     path-matcher + authority-converter rules can be asserted with
+		     WebTestClient (no live Casdoor / JWKS needed). -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
 		<plugins>
+			<!-- GraalVM native-image build tooling. The version + the
+			     process-aot / add-reachability-metadata executions are
+			     contributed by the spring-boot-starter-parent `native`
+			     profile's pluginManagement (id=native); declaring the
+			     plugin here activates those bindings when the build runs
+			     with `-Pnative`. Mirrors snapdragon-gateway/pom.xml. -->
+			<plugin>
+				<groupId>org.graalvm.buildtools</groupId>
+				<artifactId>native-maven-plugin</artifactId>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- Native build: `./mvnw -Pnative native:compile` produces a
+		     GraalVM binary. The `native` profile itself (process-aot +
+		     reachability metadata) is defined by spring-boot-starter-parent;
+		     this thin local profile only mirrors the gateway so the same
+		     `-Pnative` invocation works across the platform and gives a
+		     home for any future actions-specific native config. -->
+		<profile>
+			<id>native</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.graalvm.buildtools</groupId>
+						<artifactId>native-maven-plugin</artifactId>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>
