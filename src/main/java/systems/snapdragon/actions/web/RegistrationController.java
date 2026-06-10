@@ -1,6 +1,11 @@
 package systems.snapdragon.actions.web;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,6 +52,7 @@ import systems.snapdragon.actions.sync.GitHubOrgAdminGrantAction;
  */
 @RestController
 @RequestMapping("/api/registration")
+@Validated
 public class RegistrationController {
 
     private final GitHubOrgAdminGrantAction grantAction;
@@ -55,11 +61,40 @@ public class RegistrationController {
         this.grantAction = grantAction;
     }
 
-    public record GrantRequest(String githubAccessToken, String snapdragonUsername) {}
+    /**
+     * Evaluate-request body. Both fields are required and bounded:
+     * <ul>
+     *   <li>{@code githubAccessToken} — the user's freshly-minted GitHub OAuth
+     *       access token the registration remote forwards. GitHub tokens are
+     *       opaque ASCII (classic {@code gho_*}/{@code ghp_*} or a fine-grained
+     *       {@code github_pat_*}); bound the length + charset so a malformed /
+     *       oversized blob is rejected with a clean 400 before any GitHub call.</li>
+     *   <li>{@code snapdragonUsername} — the Casdoor username chosen at signup.
+     *       Bounded to the DNS-label charset a vanity subdomain can carry (the
+     *       reserved-name gate then rejects a present-but-reserved label with
+     *       422 — see {@link #rejectReservedUsername}).</li>
+     * </ul>
+     */
+    public record GrantRequest(
+            @NotBlank(message = "githubAccessToken is required")
+            @Size(max = 255, message = "githubAccessToken is too long")
+            @Pattern(regexp = "[A-Za-z0-9_-]+", message = "githubAccessToken has invalid characters")
+            String githubAccessToken,
+
+            @NotBlank(message = "snapdragonUsername is required")
+            @Size(max = 64, message = "snapdragonUsername is too long")
+            // Allow the leading-separator forms (e.g. "_matrix", "_fragments") so the
+            // reserved-name gate — not this charset guard — stays the authority on a
+            // reserved label; this @Pattern only blocks whitespace/control/oversized
+            // junk before the reserved check + grant action run.
+            @Pattern(regexp = "[A-Za-z0-9._-]+",
+                    message = "snapdragonUsername has invalid characters")
+            String snapdragonUsername) {}
+
     public record GrantResponse(String memberId) {}
 
     @PostMapping("/github-org-admin/evaluate")
-    public Mono<GrantResponse> evaluate(@RequestBody GrantRequest req) {
+    public Mono<GrantResponse> evaluate(@Valid @RequestBody GrantRequest req) {
         rejectReservedUsername(req.snapdragonUsername());
         return grantAction
                 .evaluateAndGrant(req.githubAccessToken(), req.snapdragonUsername())
