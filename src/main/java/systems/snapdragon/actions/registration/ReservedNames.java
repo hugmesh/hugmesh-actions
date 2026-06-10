@@ -54,7 +54,7 @@ public final class ReservedNames {
             "admin", "apidocs", "be", "bff", "_fragments", "fragments",
             "login", "logout", "mod", "user", "users",
             // be-gateway route prefixes
-            "api", "_matrix", "matrix", "mastodon", "oauth", "oauth2",
+            "api", "_matrix", "matrix", "mastodon", "pleroma", "oauth", "oauth2",
             // reserved subdomains
             "id", "auth", "scale", "headscale", "www",
             // defensive web / infra names

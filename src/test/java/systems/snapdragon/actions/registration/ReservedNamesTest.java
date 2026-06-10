@@ -16,8 +16,8 @@ class ReservedNamesTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "admin", "apidocs", "be", "bff", "fragments", "login", "logout",
-            "mod", "user", "users", "api", "matrix", "mastodon", "oauth",
-            "oauth2", "id", "auth", "scale", "headscale", "www", "root",
+            "mod", "user", "users", "api", "matrix", "mastodon", "pleroma",
+            "oauth", "oauth2", "id", "auth", "scale", "headscale", "www", "root",
             "static", "assets", "public", "health", "healthz", "actuator",
             "metrics", "well-known", "favicon", "robots", "sitemap", "status",
             "support", "help", "social", "gm", "pki", "vault", "argocd",
