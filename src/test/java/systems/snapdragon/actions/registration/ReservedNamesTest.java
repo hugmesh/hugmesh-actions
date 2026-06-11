@@ -26,6 +26,40 @@ class ReservedNamesTest {
         assertThat(ReservedNames.isReserved(label)).isTrue();
     }
 
+    /**
+     * The 14 labels backported to reach the canonical 61-label list (parity with
+     * snapdragon-federation-api / snapdragon-user-bff-api). These are the
+     * snapdragon.GAMES app route prefixes the actions copy was previously missing,
+     * so a user could register e.g. {@code publisher} or {@code games-vn-maker}
+     * even though {@code profile-<that>} would be rejected at the federation DB.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "api-docs", "banned", "docs", "games-dodecahedron", "games-rpg-maker",
+            "games-three-wizards", "games-vn-maker", "producer",
+            "producer-registration", "publisher", "registration", "_remotes",
+            "wasm", "wasm-fragment"})
+    void everyBackportedGamesPrefixIsReserved(String label) {
+        assertThat(ReservedNames.isReserved(label)).isTrue();
+    }
+
+    @Test
+    void reservedSetIsExactlyTheCanonical61Labels() {
+        // Guards against silent drift from the canonical federation/user-bff list.
+        assertThat(ReservedNames.RESERVED).hasSize(61);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            // _remotes normalises to "remotes" (no bare core in the set); the
+            // underscore-re-prefix compare must still catch it. Punctuation/case
+            // variants of the backported labels fold onto the reserved label.
+            "_remotes", "_Remotes", "WASM-FRAGMENT", "wasm_fragment",
+            "Games VN Maker", "producer.registration", "API_DOCS"})
+    void backportedPrefixSeparatorAndCaseVariantsAreReserved(String label) {
+        assertThat(ReservedNames.isReserved(label)).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "ADMIN", "Admin", "  Login  ", "GAMES", "Api"})
