@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
+import systems.snapdragon.actions.federation.FederationUsernameClient;
+import systems.snapdragon.actions.federation.UsernameAvailability;
 import systems.snapdragon.actions.registration.ReservedNames;
 import systems.snapdragon.actions.sync.GitHubOrgAdminGrantAction;
 
@@ -49,6 +52,22 @@ import systems.snapdragon.actions.sync.GitHubOrgAdminGrantAction;
  * {@code organization.AccountItems} / a forbidden-username policy on the
  * signup application — keep its list in sync with {@link ReservedNames}).
  * This controller is defence-in-depth, not the sole gate.
+ *
+ * <p><b>Confusable / availability gate (defence-in-depth).</b> The local
+ * {@link ReservedNames} check is exact-only, so it cannot catch a homoglyph /
+ * look-alike of an existing username or of a reserved label ({@code 4dmin},
+ * {@code akk0ma}, a Cyrillic {@code аdmin}). When the federation username-check
+ * is configured on ({@code app.federation.username-check.enabled=true}), this
+ * controller ALSO asks the registry owner —
+ * {@link FederationUsernameClient#availability(String)} ->
+ * {@code GET /api/federation/username/{candidate}/availability}, a
+ * ROLE_SERVICE call — and REJECTS ({@code 422}) any candidate the registry
+ * reports as colliding (exact / confusable / reserved) BEFORE the grant runs.
+ * This is the GitHub-org-admin path ONLY; it is NOT the universal signup gate
+ * (a normal self-signup never reaches this controller — that gate is Casdoor +
+ * the federation engine on the login mint). The check fails CLOSED: a
+ * federation outage rejects rather than mints a look-alike (the local exact
+ * reserved fast-path still runs first regardless).
  */
 @RestController
 @RequestMapping("/api/registration")
@@ -56,9 +75,18 @@ import systems.snapdragon.actions.sync.GitHubOrgAdminGrantAction;
 public class RegistrationController {
 
     private final GitHubOrgAdminGrantAction grantAction;
+    /**
+     * The federation confusable/availability client — present ONLY when
+     * {@code app.federation.username-check.enabled=true} (gated config-on, like
+     * the other internal-service calls). {@code null} otherwise, in which case
+     * the gate degrades to the local exact reserved fast-path alone.
+     */
+    private final ObjectProvider<FederationUsernameClient> federationUsername;
 
-    public RegistrationController(GitHubOrgAdminGrantAction grantAction) {
+    public RegistrationController(GitHubOrgAdminGrantAction grantAction,
+                                  ObjectProvider<FederationUsernameClient> federationUsername) {
         this.grantAction = grantAction;
+        this.federationUsername = federationUsername;
     }
 
     /**
@@ -95,10 +123,64 @@ public class RegistrationController {
 
     @PostMapping("/github-org-admin/evaluate")
     public Mono<GrantResponse> evaluate(@Valid @RequestBody GrantRequest req) {
+        // 1) Local exact reserved fast-path — runs unconditionally, even when the
+        //    federation engine is unreachable (fail-closed on reserved labels).
         rejectReservedUsername(req.snapdragonUsername());
-        return grantAction
-                .evaluateAndGrant(req.githubAccessToken(), req.snapdragonUsername())
+        // 2) Federation confusable/availability gate (defence-in-depth) — only
+        //    when configured on; rejects exact/confusable/reserved collisions the
+        //    exact local check can't see, BEFORE the grant runs.
+        // The grant call is DEFERRED so it is only constructed once both gates
+        // pass — when the availability check errors (collide), the grant action
+        // is never invoked at all.
+        return assertAvailable(req.snapdragonUsername())
+                .then(Mono.defer(() ->
+                        grantAction.evaluateAndGrant(req.githubAccessToken(), req.snapdragonUsername())))
                 .map(GrantResponse::new);
+    }
+
+    /**
+     * Ask the registry owner whether the candidate collides (exact / confusable /
+     * reserved) and ERROR (422) if so, BEFORE granting; completes empty when the
+     * candidate is available. A no-op completed Mono when the federation
+     * username-check is not configured on (the bean is absent) — the local exact
+     * reserved fast-path is then the only gate. The underlying client fails CLOSED
+     * (an unreachable federation resolves to collide=true), so a brown-out rejects
+     * rather than mints a look-alike.
+     */
+    private Mono<Void> assertAvailable(String snapdragonUsername) {
+        FederationUsernameClient client = federationUsername.getIfAvailable();
+        if (client == null) {
+            return Mono.empty();
+        }
+        return client.availability(snapdragonUsername)
+                .handle((a, sink) -> {
+                    if (a.collide()) {
+                        sink.error(collisionRejection(snapdragonUsername, a));
+                    } else {
+                        sink.complete();
+                    }
+                });
+    }
+
+    /**
+     * Build the 422 for a federation-reported collision, surfacing the
+     * {@code reason} (exact|confusable|reserved) and the {@code matchedWith}
+     * existing handle / reserved label so the SPA can tell the user why.
+     */
+    private static ResponseStatusException collisionRejection(String username, UsernameAvailability a) {
+        StringBuilder msg = new StringBuilder("username '").append(username)
+                .append("' is unavailable");
+        String reason = a.reason();
+        if (reason != null && !reason.isBlank()) {
+            msg.append(" (").append(reason).append(')');
+        }
+        if (a.matchedWith() != null && !a.matchedWith().isBlank()) {
+            msg.append(": it collides with '").append(a.matchedWith()).append('\'');
+        } else {
+            msg.append(": it collides with an existing or reserved name");
+        }
+        msg.append(". Choose another username.");
+        return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, msg.toString());
     }
 
     /**

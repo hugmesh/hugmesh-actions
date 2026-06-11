@@ -28,7 +28,13 @@ import java.util.Set;
  *   <li>be-gateway route prefixes: api, _matrix, oauth;</li>
  *   <li>reserved subdomains: id, api, matrix, mastodon, scale, headscale,
  *       www;</li>
- *   <li>the snapdragon.games app prefixes: games, play;</li>
+ *   <li>the snapdragon.games app route prefixes (derived from the games
+ *       front-end nginx {@code /_remotes/<slug>/} blocks + location
+ *       prefixes + the {@code <service>.snapdragon.games} subdomains):
+ *       games, play, wasm, wasm-fragment, producer, producer-registration,
+ *       publisher, registration, banned, api-docs, docs, _remotes,
+ *       games-dodecahedron, games-rpg-maker, games-three-wizards,
+ *       games-vn-maker;</li>
  *   <li>defensive web/infra names (root, static, assets, public, health,
  *       healthz, actuator, metrics, well-known, favicon, robots, sitemap,
  *       status, support, help, social, gm, pki, vault, argocd, gitlab,
@@ -51,7 +57,7 @@ public final class ReservedNames {
      */
     public static final Set<String> RESERVED = Set.of(
             // fe-gateway route prefixes
-            "admin", "apidocs", "be", "bff", "_fragments", "fragments",
+            "admin", "apidocs", "be", "bff", "_fragments", "_remotes", "fragments",
             "login", "logout", "mod", "user", "users",
             // be-gateway route prefixes
             "api", "_matrix", "matrix", "mastodon", "pleroma", "oauth", "oauth2",
@@ -62,8 +68,12 @@ public final class ReservedNames {
             "actuator", "metrics", "well-known", "favicon", "robots",
             "sitemap", "status", "support", "help", "social", "gm",
             "pki", "vault", "argocd", "gitlab", "registry",
-            // snapdragon.games app prefixes
-            "games", "play");
+            // snapdragon.GAMES app route prefixes (derived: nginx /_remotes/<slug>/
+            // + location prefixes + <service>.snapdragon.games subdomains)
+            "games", "play", "wasm", "wasm-fragment", "producer",
+            "producer-registration", "publisher", "registration", "banned",
+            "api-docs", "docs", "games-dodecahedron", "games-rpg-maker",
+            "games-three-wizards", "games-vn-maker");
 
     /**
      * Normalise a candidate username to the DNS-label form the vanity
@@ -93,10 +103,14 @@ public final class ReservedNames {
 
     /**
      * True if {@code username} (once normalised) collides with a reserved
-     * label. Compares both the normalised form AND a dash-stripped form so a
-     * leading-underscore route prefix such as {@code _matrix}/{@code _fragments}
-     * (which normalises to {@code matrix}/{@code fragments}) is still caught
-     * regardless of how the raw label was punctuated.
+     * label. Compares the normalised form, a dash-stripped form AND an
+     * underscore-re-prefixed form, so a leading-underscore route prefix such as
+     * {@code _matrix}/{@code _fragments}/{@code _remotes} (which normalises to
+     * {@code matrix}/{@code fragments}/{@code remotes}) is still caught
+     * regardless of how the raw label was punctuated. {@code _matrix} and
+     * {@code _fragments} also have bare cores ({@code matrix}/{@code fragments})
+     * in the set; {@code _remotes} does not, so the underscore-re-prefixed
+     * compare is what catches it.
      */
     public static boolean isReserved(String username) {
         String n = normalize(username);
@@ -105,6 +119,10 @@ public final class ReservedNames {
         // The underscore-prefixed prefixes (_matrix, _fragments) normalise to
         // their dash-free core; compare that against the reserved set too.
         String collapsed = n.replace("-", "");
-        return RESERVED.contains(collapsed);
+        if (RESERVED.contains(collapsed)) return true;
+        // Re-prefix a leading underscore so an underscore-only reserved label
+        // with no bare core (e.g. "_remotes" -> normalises to "remotes") is
+        // still caught after normalisation stripped the underscore.
+        return RESERVED.contains("_" + n) || RESERVED.contains("_" + collapsed);
     }
 }
