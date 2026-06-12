@@ -44,7 +44,8 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  * {@code app.federation.username-check.enabled=true} wiring.
  */
 @WebFluxTest(controllers = RegistrationController.class)
-@Import({SecurityConfig.class, RegistrationControllerConfusableGateTest.GateConfig.class})
+@Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class,
+        RegistrationControllerConfusableGateTest.GateConfig.class})
 class RegistrationControllerConfusableGateTest {
 
     @Autowired WebTestClient client;
