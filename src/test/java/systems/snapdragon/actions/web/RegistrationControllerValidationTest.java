@@ -28,7 +28,8 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  * {@link RegistrationControllerReservedUsernameTest}.
  */
 @WebFluxTest(controllers = RegistrationController.class)
-@Import({SecurityConfig.class, ValidationExceptionHandler.class})
+@Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class,
+        ValidationExceptionHandler.class})
 class RegistrationControllerValidationTest {
 
     @Autowired WebTestClient client;
