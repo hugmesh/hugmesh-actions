@@ -172,7 +172,6 @@ class GitHubOrgAdminReconcileActionTest {
         assertThat(GitHubOrgAdminReconcileAction.usernameOf(null)).isNull();
     }
 
-    // ---------------------------------------------------------------
     // REGRESSION (a) — CONCURRENT MULTI-REVOKE / lost-update race.
     //
     // Two admins (alice + bob) BOTH have zero GitHub reach in the same
@@ -185,7 +184,6 @@ class GitHubOrgAdminReconcileActionTest {
     // no-longer-eligible admin still in the role. The NEW code evaluates
     // eligibility read-only/concurrently, COLLECTS {alice,bob}, then does
     // ONE getRoleMembers → removeAll → setRoleMembers, so BOTH are gone.
-    // ---------------------------------------------------------------
     @Test
     void concurrentMultiRevoke_bothLosersRemoved_noLostUpdate() {
         GitHubClient github = Mockito.mock(GitHubClient.class);
@@ -220,7 +218,6 @@ class GitHubOrgAdminReconcileActionTest {
         assertThat(cache.get("bob")).isEmpty();
     }
 
-    // ---------------------------------------------------------------
     // REGRESSION (b) — TRANSIENT-ERROR-NO-REVOKE.
     //
     // An org-level-only admin (carol) whose org-membership probe hits a
@@ -232,7 +229,6 @@ class GitHubOrgAdminReconcileActionTest {
     // empty page. The OLD GitHubClient.isOrgAdmin swallowed ANY error to
     // false → reach read empty → carol wrongfully revoked. The NEW one
     // propagates the 503 → carol skipped, no write.
-    // ---------------------------------------------------------------
     @Test
     void transientError_orgAdminNotRevoked_thisTick() {
         GitHubTokenCache cache = new GitHubTokenCache(Duration.ofHours(24));

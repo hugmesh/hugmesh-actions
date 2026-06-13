@@ -2,29 +2,17 @@ import { expect } from '@playwright/test';
 import { Given, When, Then } from '../support/fixtures';
 import { httpRequest } from './helpers/actions';
 
-// In-scenario state — bearer token for the current actor + the
-// last response status for assertions. Stored on the world so the
-// step chain can read state across steps.
 const tokensByActor = new Map<string, string>();
 
-/**
- * Mint a Casdoor JWT for the named role. The bring-up script
- * generates per-role tokens at startup and writes them to
- * `e2e/.tokens.json`; the helper reads them from there. In CI the
- * file is generated; running locally without the file falls back
- * to an environment variable lookup.
- */
 async function tokenFor(role: string): Promise<string> {
   const fs = await import('fs');
   const path = await import('path');
   const cwd = process.cwd();
-  // Try the file the bring-up script writes.
   const tokensFile = path.join(cwd, '.tokens.json');
   if (fs.existsSync(tokensFile)) {
     const parsed = JSON.parse(fs.readFileSync(tokensFile, 'utf8'));
     if (parsed[role]) return parsed[role];
   }
-  // Env var fallback (TOKEN_ADMIN, TOKEN_GAME_MASTER, etc.).
   const envKey = `TOKEN_${role.replace('-', '_').toUpperCase()}`;
   const fromEnv = process.env[envKey];
   if (fromEnv) return fromEnv;

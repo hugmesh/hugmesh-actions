@@ -107,8 +107,6 @@ class SecurityConfigConverterTest {
                 "ROLE_USER", "ROLE_GAME-MASTER", "metrics:read", "ROLE_ADMIN", DOMAIN_DEFAULT);
     }
 
-    // ---- authority-injection regressions (reserved-prefix guard) -------------
-
     @Test
     void permissionsCannotForgeRoleAuthority() {
         // A user-influenced permission string starting with the reserved ROLE_

@@ -25,7 +25,7 @@ import java.util.Set;
  * <ul>
  *   <li>fe-gateway route prefixes: admin, apidocs, be, bff, _fragments,
  *       fragments, login, mod, user;</li>
- *   <li>be-gateway route prefixes: api, _matrix, oauth;</li>
+ *   <li>be-gateway route prefixes: api, _matrix, oauth, forum;</li>
  *   <li>reserved subdomains: id, api, matrix, mastodon, scale, headscale,
  *       www;</li>
  *   <li>the snapdragon.games app route prefixes (derived from the games
@@ -60,7 +60,7 @@ public final class ReservedNames {
             "admin", "apidocs", "be", "bff", "_fragments", "_remotes", "fragments",
             "login", "logout", "mod", "user", "users",
             // be-gateway route prefixes
-            "api", "_matrix", "matrix", "mastodon", "pleroma", "oauth", "oauth2",
+            "api", "_matrix", "matrix", "mastodon", "pleroma", "forum", "oauth", "oauth2",
             // reserved subdomains
             "id", "auth", "scale", "headscale", "www",
             // defensive web / infra names

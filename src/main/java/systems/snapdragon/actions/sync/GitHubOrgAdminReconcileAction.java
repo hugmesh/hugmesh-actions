@@ -142,9 +142,6 @@ public class GitHubOrgAdminReconcileAction {
      * other's removal.
      */
     Mono<Void> reconcile(String role, List<String> members) {
-        // Map current members back to the bare username keys the token
-        // cache is keyed on, dropping any whose <org>/ prefix we can't
-        // resolve (defensive — Casdoor always stores the prefixed form).
         Map<String, String> usernameByMember = new HashMap<>();
         for (String member : members) {
             String username = usernameOf(member);
@@ -159,18 +156,9 @@ public class GitHubOrgAdminReconcileAction {
         log.debug("[gh-org-admin-reconcile] evaluating {} admins (cached tokens: {})",
                 usernameByMember.size(), tokenCache.size());
 
-        // Phase 1 — CONCURRENT read-only eligibility scan. Each
-        // evaluateOne emits the username iff it has genuinely lost all
-        // reach (and we hold a fresh token); it emits nothing when the
-        // user is skipped (no token), still eligible, or its GitHub
-        // probe was inconclusive (transient error). No Casdoor writes
-        // here, so MAX_CONCURRENCY parallelism is safe.
         return Flux.fromIterable(usernameByMember.values())
             .flatMap(this::evaluateOne, MAX_CONCURRENCY)
             .collect(java.util.stream.Collectors.toSet())
-            // Phase 2 — SINGLE serialized read-modify-write for the
-            // whole loser set. One getRoleMembers → removeAll →
-            // setRoleMembers; a no-op tick (empty set) writes nothing.
             .flatMap(toRevoke -> {
                 if (toRevoke.isEmpty()) return Mono.empty();
                 log.info("[gh-org-admin-reconcile] revoking {} admin(s) — GitHub reach removed: {}",
@@ -208,10 +196,6 @@ public class GitHubOrgAdminReconcileAction {
                 errors.increment();
                 log.warn("[gh-org-admin-reconcile] evaluation inconclusive for {} — skipping: {}",
                         username, e.getMessage());
-                // Transient / inconclusive GitHub error → treat as
-                // missing evidence and SKIP. Emitting nothing keeps the
-                // user OUT of the revoke set, so a transient error can
-                // never cause a revoke.
                 return Mono.empty();
             });
     }

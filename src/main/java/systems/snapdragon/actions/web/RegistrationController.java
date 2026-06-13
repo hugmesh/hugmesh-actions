@@ -123,15 +123,7 @@ public class RegistrationController {
 
     @PostMapping("/github-org-admin/evaluate")
     public Mono<GrantResponse> evaluate(@Valid @RequestBody GrantRequest req) {
-        // 1) Local exact reserved fast-path — runs unconditionally, even when the
-        //    federation engine is unreachable (fail-closed on reserved labels).
         rejectReservedUsername(req.snapdragonUsername());
-        // 2) Federation confusable/availability gate (defence-in-depth) — only
-        //    when configured on; rejects exact/confusable/reserved collisions the
-        //    exact local check can't see, BEFORE the grant runs.
-        // The grant call is DEFERRED so it is only constructed once both gates
-        // pass — when the availability check errors (collide), the grant action
-        // is never invoked at all.
         return assertAvailable(req.snapdragonUsername())
                 .then(Mono.defer(() ->
                         grantAction.evaluateAndGrant(req.githubAccessToken(), req.snapdragonUsername())))

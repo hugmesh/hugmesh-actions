@@ -64,7 +64,6 @@ public class NativeHintsConfig {
     static class Hints implements RuntimeHintsRegistrar {
         @Override
         public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
-            // --- JSON-bound DTOs crossing the HTTP boundary -----------
             hints.reflection()
                     .registerType(RegistrationController.GrantRequest.class, dtoCategories())
                     .registerType(RegistrationController.GrantResponse.class, dtoCategories())
@@ -72,19 +71,11 @@ public class NativeHintsConfig {
                     .registerType(GitHubClient.OrgMembership.class, dtoCategories())
                     .registerType(GitHubClient.RepoPermission.class, dtoCategories());
 
-            // --- Resilience4j @CircuitBreaker advised beans -----------
-            // Keep the advised methods + their AOT proxy reachable.
             hints.reflection()
                     .registerType(GameMasterAdminSyncAction.class, proxyTargetCategories())
                     .registerType(GitHubOrgAdminGrantAction.class, proxyTargetCategories())
                     .registerType(GitHubOrgAdminReconcileAction.class, proxyTargetCategories());
 
-            // --- SpringDoc Swagger-UI static resources ---------------
-            // The Swagger-UI assets ship as classpath resources in the
-            // springdoc-openapi-starter-webflux-ui jar; native-image
-            // would otherwise strip them and 404 the UI. The spec JSON
-            // at /v3/api-docs is covered by SpringDoc's own bundled
-            // reachability-metadata (pulled in by add-reachability-metadata).
             hints.resources()
                     .registerPattern("META-INF/resources/webjars/swagger-ui/*")
                     .registerPattern("META-INF/resources/webjars/swagger-ui/**");

@@ -6,13 +6,9 @@ import { readCounter, waitForActionsHealthy, waitForSyncTick } from './helpers/a
 const SYSTEMS_ROLE = 'game-master';
 const GAMES_ROLE   = 'admin';
 
-// ── Lifecycle ───────────────────────────────────────────────────────
-
 Given('the actions service is healthy', async ({}) => {
   await waitForActionsHealthy();
 });
-
-// ── Casdoor arrangement (Given) ─────────────────────────────────────
 
 Given('user {string} exists on snapdragon-systems Casdoor', async ({}, username: string) => {
   await casdoorClients().systems.ensureUser(username);
@@ -43,8 +39,6 @@ Given('the snapdragon-systems game-master set matches the threewizards admin set
   await games.setRoleMembers(GAMES_ROLE, []);
 });
 
-// ── Triggers (When) ─────────────────────────────────────────────────
-
 When('user {string} is granted game-master on snapdragon-systems Casdoor',
      async ({ world }, username: string) => {
   world.counters.added    = await readCounter('actions.gm_sync.added');
@@ -64,8 +58,6 @@ When('user {string}\'s game-master role is removed from snapdragon-systems Casdo
 When('the sync action ticks once', async ({}) => {
   await waitForSyncTick();
 });
-
-// ── Assertions (Then) ───────────────────────────────────────────────
 
 Then('user {string} has the admin role on threewizards Casdoor', async ({}, username: string) => {
   const games = casdoorClients().games;
