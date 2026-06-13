@@ -128,12 +128,6 @@ public class GameMasterAdminSyncAction {
             .flatMap(t -> reconcile(t.getT1(), t.getT2()));
     }
 
-    /**
-     * Compute the diff between current games-admin membership and
-     * the desired set (systems-game-masters mapped to the games
-     * Casdoor organization), then POST the new list to games
-     * Casdoor only when it actually changes.
-     */
     Mono<Void> reconcile(List<String> systemsMembers, List<String> gamesMembers) {
         Set<String> desired = new HashSet<>();
         for (String m : systemsMembers) {

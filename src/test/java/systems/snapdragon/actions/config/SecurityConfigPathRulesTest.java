@@ -54,8 +54,6 @@ class SecurityConfigPathRulesTest {
     @MockitoBean
     ReactiveJwtDecoder jwtDecoder;
 
-    // ---- public tier -------------------------------------------------
-
     @Test
     void health_isPublic() {
         client.get().uri("/actuator/health").exchange().expectStatus().isOk();
@@ -65,8 +63,6 @@ class SecurityConfigPathRulesTest {
     void info_isPublic() {
         client.get().uri("/actuator/info").exchange().expectStatus().isOk();
     }
-
-    // ---- /actuator/** → ROLE_GAME-MASTER -----------------------------
 
     @Test
     void metrics_deniedForAnonymous() {
@@ -87,8 +83,6 @@ class SecurityConfigPathRulesTest {
                 .expectStatus().isOk();
     }
 
-    // ---- /api/registration/** → ROLE_ADMIN ---------------------------
-
     @Test
     void registration_deniedForAnonymous() {
         client.get().uri("/api/registration/github-org-admin/evaluate")
@@ -108,8 +102,6 @@ class SecurityConfigPathRulesTest {
                 .get().uri("/api/registration/github-org-admin/evaluate")
                 .exchange().expectStatus().isOk();
     }
-
-    // ---- anyExchange → authenticated ---------------------------------
 
     @Test
     void other_deniedForAnonymous() {

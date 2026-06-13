@@ -193,22 +193,6 @@ public class SecurityConfig {
         return converter;
     }
 
-    /**
-     * Casdoor claim -&gt; Spring authority mapping. Delegates to the shared
-     * {@link CasdoorAuthorities} so the single-issuer path here and the optional
-     * multi-issuer path ({@link TenancyResourceServerConfig}) stay byte-identical:
-     *
-     * <ul>
-     *   <li>every authenticated principal gets a {@code ROLE_USER} floor;</li>
-     *   <li>each {@code roles} entry (a string, or an object with a {@code name})
-     *       becomes {@code ROLE_<UPPERCASE>};</li>
-     *   <li>each {@code permissions} entry becomes a verbatim authority, EXCEPT
-     *       reserved-prefix ({@code ROLE_}/{@code DOMAIN_}) entries which are
-     *       STRIPPED (authority-injection defense);</li>
-     *   <li>{@code isAdmin == true} adds {@code ROLE_ADMIN};</li>
-     *   <li>plus exactly ONE issuer-derived {@code DOMAIN_<x>} authority.</li>
-     * </ul>
-     */
     Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
         return CasdoorAuthorities.converter(domainRegistry);
     }

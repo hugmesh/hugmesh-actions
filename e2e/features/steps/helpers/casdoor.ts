@@ -1,11 +1,3 @@
-// Thin Casdoor admin-API wrapper used by the step definitions to
-// arrange + assert state across the two Casdoor instances the
-// snapdragon-actions service ties together.
-//
-// One instance per side (systems + games), constructed once and
-// reused across scenarios. Uses HTTP Basic with the admin client-
-// id + client-secret the e2e compose stack provisions.
-
 import { request } from '@playwright/test';
 
 interface CasdoorConfig {

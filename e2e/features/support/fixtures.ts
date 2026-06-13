@@ -1,9 +1,3 @@
-// playwright-bdd extends Playwright's `test` with a BDD World. We
-// publish `test`/`expect` from here so every step file imports
-// through one channel. Hooks (Before / AfterStep / After) are
-// registered here too — splitting them across files races with
-// playwright-bdd's createBdd(test) factory.
-
 import { test as base, createBdd } from 'playwright-bdd';
 
 /**
@@ -28,13 +22,6 @@ export const test = base.extend<{ world: World }>({
 
 export const { Given, When, Then, Before, BeforeStep, AfterStep, After } = createBdd(test);
 
-// ── Per-step PNG capture ────────────────────────────────────────────
-//
-// The AfterStep hook attaches a screenshot at every Gherkin step
-// transition. The HTML reporter persists path-based attachments
-// (body-based ones succeed at attach time but never reach the
-// generated report) so we screenshot to `testInfo.outputDir` first
-// and attach by path.
 let stepCounter = 0;
 
 Before(async () => { stepCounter = 0; });

@@ -47,8 +47,6 @@ class SecurityConfigSpecPathsTest {
         return out;
     }
 
-    // ---- dev / test profile: spec paths are PUBLIC ----------------------
-
     @Nested
     @WebFluxTest(controllers = SpecProbes.class)
     @Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class})
@@ -71,8 +69,6 @@ class SecurityConfigSpecPathsTest {
             client.get().uri("/swagger-ui.html").exchange().expectStatus().isOk();
         }
     }
-
-    // ---- prod (default profile): spec paths require ROLE_ADMIN ----------
 
     @Nested
     @WebFluxTest(controllers = SpecProbes.class)

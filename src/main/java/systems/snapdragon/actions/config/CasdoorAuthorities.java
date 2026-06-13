@@ -79,16 +79,13 @@ final class CasdoorAuthorities {
      *  + unit testing). */
     static List<GrantedAuthority> authorities(Jwt jwt, DomainRegistry domainRegistry) {
         List<GrantedAuthority> authorities = new ArrayList<>();
-        authorities.add(new SimpleGrantedAuthority("ROLE_USER")); // floor — UNCHANGED
+        authorities.add(new SimpleGrantedAuthority("ROLE_USER")); // floor
 
         Object rolesClaim = jwt.getClaim("roles");
         if (rolesClaim instanceof Collection<?> list) {
             for (Object r : list) {
                 String name = roleNameOf(r);
                 if (!name.isBlank()) {
-                    // Always ROLE_-prefixed, so a roles entry can NEVER inject a
-                    // DOMAIN_ authority: "DOMAIN_x" -> "ROLE_DOMAIN_X" (inert,
-                    // non-tenant). See RESERVED_PREFIXES.
                     authorities.add(new SimpleGrantedAuthority(
                             "ROLE_" + name.trim().toUpperCase()));
                 }
@@ -101,14 +98,6 @@ final class CasdoorAuthorities {
                 if (p == null) continue;
                 String perm = p.toString().trim();
                 if (perm.isEmpty()) continue;
-                // RESERVED-PREFIX GUARD (authority-injection defense). A verbatim
-                // permission string MUST NOT carry the ROLE_ or DOMAIN_ prefix —
-                // those authorities come ONLY from the converter's controlled logic
-                // (roles-claim -> ROLE_<UPPER>; validated issuer -> DOMAIN_<x>).
-                // Skipping such entries stops a brand-X token carrying
-                // permissions:["DOMAIN_brandy"] (forged tenant scope) or
-                // permissions:["ROLE_SUPERADMIN"] (forged super-role) from
-                // escalating cross-domain. See RESERVED_PREFIXES.
                 if (isReserved(perm)) continue;
                 authorities.add(new SimpleGrantedAuthority(perm));
             }
@@ -118,11 +107,6 @@ final class CasdoorAuthorities {
             authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }
 
-        // Domain authority — keyed on the cryptographically-validated ISSUER
-        // (per-brand Casdoor => distinct iss). NEVER a user-settable claim.
-        // DOMAIN_<x> is a NON-role authority (no ROLE_ prefix) so it can never
-        // satisfy a hasRole() check by accident. A null from the registry (unknown
-        // issuer) defensively maps to "default" rather than emitting "DOMAIN_null".
         String issuer = jwt.getIssuer() == null ? null : jwt.getIssuer().toString();
         String domain = domainRegistry.domainOf(issuer);
         if (domain == null) domain = DomainRegistry.DEFAULT_DOMAIN;
