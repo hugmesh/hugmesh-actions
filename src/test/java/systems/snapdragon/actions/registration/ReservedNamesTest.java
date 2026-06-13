@@ -16,7 +16,7 @@ class ReservedNamesTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "admin", "apidocs", "be", "bff", "fragments", "login", "logout",
-            "mod", "user", "users", "api", "matrix", "mastodon", "pleroma",
+            "mod", "user", "users", "api", "matrix", "mastodon", "pleroma", "forum",
             "oauth", "oauth2", "id", "auth", "scale", "headscale", "www", "root",
             "static", "assets", "public", "health", "healthz", "actuator",
             "metrics", "well-known", "favicon", "robots", "sitemap", "status",
@@ -44,9 +44,9 @@ class ReservedNamesTest {
     }
 
     @Test
-    void reservedSetIsExactlyTheCanonical61Labels() {
+    void reservedSetIsExactlyTheCanonical62Labels() {
         // Guards against silent drift from the canonical federation/user-bff list.
-        assertThat(ReservedNames.RESERVED).hasSize(61);
+        assertThat(ReservedNames.RESERVED).hasSize(62);
     }
 
     @ParameterizedTest
