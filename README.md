@@ -21,9 +21,11 @@ losing it on a restart only delays an auto-revoke).
 
 The reconcilers in this service are what make two platform invariants
 self-healing rather than sign-in-only: a `game-master` on
-snapdragon.systems automatically becomes an `admin` on snapdragon.games,
-and a platform admin who loses their GitHub org-admin reach
-automatically loses snapdragon.systems admin.
+snapdragon.systems automatically becomes an `admin` in the **optional,
+opt-in games realm** (the games service is OFF by default and only
+present when the build is generated with `--enable-games`), and a
+platform admin who loses their GitHub org-admin reach automatically
+loses snapdragon.systems admin.
 
 ```mermaid
 flowchart LR
@@ -38,11 +40,11 @@ flowchart LR
     end
 
     SC["snapdragon.systems Casdoor<br/>(canonical JWT issuer)"]
-    GC["snapdragon.games Casdoor"]
+    GC["games Casdoor<br/>(optional service, opt-in)"]:::optional
     GH["GitHub API"]
 
     GM -->|"read game-master / write admin"| SC
-    GM -->|"write threewizards admin"| GC
+    GM -->|"write games admin<br/>(when games enabled)"| GC
     GHA -.->|"grant/deny systems admin<br/>(disabled by default)"| SC
     GHA -.->|"check org-admin reach<br/>(disabled by default)"| GH
     REV -.->|"prune-only revoke<br/>(no-op when disabled)"| SC
@@ -51,6 +53,7 @@ flowchart LR
     MFA -.-> RC
 
     classDef planned stroke-dasharray:4 5,stroke:#999,color:#999
+    classDef optional stroke-dasharray:3 3,stroke:#888,color:#666
 ```
 
 Solid edges are **✅ shipped** and active by default; the dotted
@@ -62,8 +65,16 @@ GitHub-org-admin edges are shipped but **gated off by default**
 
 ### `GameMasterAdminSyncAction` — systems game-master → games admin
 
+> Role-gated and tied to the **optional games service** (Snapdragon Game
+> Studio), which is OFF by default and only enabled when a build is
+> generated with `--enable-games` / `ENABLE_GAMES=true`. When games is
+> not deployed this reconciler simply has no games Casdoor to write to;
+> it is the cross-stack reconciler that propagates a domain
+> admin/superadmin holding the `game-master` role into the games realm as
+> a games admin.
+
 Propagates the `game-master` role from snapdragon.systems Casdoor into
-the `admin` role on snapdragon.games Casdoor. Scheduled every
+the `admin` role on the games Casdoor. Scheduled every
 `app.actions.game-master-sync.interval-ms` (default **60 s**).
 
 Each tick reads both role memberships, computes the desired games-admin
@@ -152,7 +163,7 @@ of the service is scheduled work with no request principal.
 `POST /api/registration/github-org-admin/evaluate` — body
 `{ githubAccessToken, snapdragonUsername }` (both bounded + charset-
 validated by Jakarta Bean Validation → `400` on malformed input). Called
-by the **snapdragon.games registration remote's BFF** after a new user
+by the **registration remote's BFF** after a new user
 completes external GitHub OAuth; it forwards the user's GitHub
 access-token + their freshly-minted Casdoor username. The controller, in
 order:
@@ -162,7 +173,8 @@ order:
    form, collides with a dedicated gateway route/prefix. The reserved
    list (`ReservedNames`, currently **62 labels**) is the canonical union
    of the fe-/be-gateway route prefixes, reserved subdomains, the
-   snapdragon.games app routes, and defensive infra names — **kept
+   app routes of the optional (opt-in, default-off) games service, and
+   defensive infra names — **kept
    byte-for-byte in lockstep** with `snapdragon-gateway`'s `CanonicalSeed`
    and `snapdragon-admin-bff-api`'s copy (all three must agree on the same
    62). This is defence-in-depth; Casdoor's own forbidden-username policy
