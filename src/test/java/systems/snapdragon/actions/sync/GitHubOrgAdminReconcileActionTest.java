@@ -59,7 +59,25 @@ class GitHubOrgAdminReconcileActionTest {
         return new GitHubOrgAdminGrantAction(
                 github, casdoor, cache,
                 "Snapdragon-Systems,Snapdragon", "admin",
+                true,
                 new SimpleMeterRegistry());
+    }
+
+    @Test
+    void runTick_isNoOp_whenFeatureDisabled() {
+        GitHubClient github = Mockito.mock(GitHubClient.class);
+        CasdoorClient casdoor = Mockito.mock(CasdoorClient.class);
+        when(casdoor.organization()).thenReturn("snapdragon-systems");
+        GitHubTokenCache cache = new GitHubTokenCache(Duration.ofHours(24));
+        GitHubOrgAdminGrantAction disabledGrant = new GitHubOrgAdminGrantAction(
+                github, casdoor, cache,
+                "Snapdragon-Systems,Snapdragon", "admin",
+                false,
+                new SimpleMeterRegistry());
+        GitHubOrgAdminReconcileAction reconciler = reconcile(disabledGrant, cache);
+        reconciler.runTick();
+        verify(casdoor, never()).getRoleMembers(anyString());
+        verify(github, never()).snapdragonAdminOrgs(anyString(), any());
     }
 
     private GitHubOrgAdminReconcileAction reconcile(GitHubOrgAdminGrantAction grant,

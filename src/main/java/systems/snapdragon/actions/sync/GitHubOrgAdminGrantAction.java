@@ -20,38 +20,35 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Auto-grants snapdragon.systems Casdoor admin to GitHub-authenticated
- * users who have admin authority on any repo (or org-level admin
- * membership) within the configured Snapdragon GitHub orgs.
+ * Opt-in auto-grant of snapdragon.systems Casdoor admin to GitHub-authenticated
+ * users who have admin authority on any repo (or org-level admin membership)
+ * within the configured Snapdragon GitHub orgs.
  *
- * <p>Two callers:
+ * <p><b>Disabled by default.</b> Set {@code app.actions.gh-org-admin.enabled=true}
+ * (env: {@code GH_ORG_ADMIN_ENABLED}) for the superadmin to opt in. When disabled,
+ * {@link #evaluateAndGrant} returns 404 immediately and the scheduled reconciler
+ * is a no-op — no GitHub calls, no Casdoor writes. Superadmin can toggle this
+ * live by updating the env var and rolling the pod.
  *
+ * <p>When enabled, two callers:
  * <ol>
- *   <li>Sign-up: the snapdragon.games registration remote forwards
- *       the user's GitHub access_token after the external-OAuth
- *       handshake completes. The action then evaluates the user's
- *       admin reach on GitHub and adds them to the admin role on
- *       snapdragon.systems Casdoor if the rule matches.</li>
- *   <li>Reconciliation: scheduled tick (every
- *       {@code app.actions.gh-org-admin.interval-ms}) walks the
- *       set of GitHub-linked Casdoor users and re-evaluates the
- *       rule. Drops admin from any user whose GitHub admin reach
- *       has been revoked since the last tick.</li>
+ *   <li>Sign-up: the registration remote forwards the user's GitHub access_token;
+ *       this action checks org admin reach and grants the systems-admin role.</li>
+ *   <li>Reconciliation: a scheduled tick re-evaluates the rule and revokes admin
+ *       from any user whose GitHub reach has been removed.</li>
  * </ol>
  *
  * <p>Configuration:
- *
  * <ul>
- *   <li>{@code app.actions.gh-org-admin.orgs} — the Snapdragon GitHub
- *       orgs whose admins should map to systems-admin. Defaults to
- *       {@code Snapdragon-Systems,Snapdragon}.</li>
- *   <li>{@code app.actions.gh-org-admin.systems-admin-role} — Casdoor
- *       role on the snapdragon.systems organization that signifies
- *       platform admin. Default: {@code admin}.</li>
+ *   <li>{@code app.actions.gh-org-admin.enabled} — master on/off switch (default false).</li>
+ *   <li>{@code app.actions.gh-org-admin.orgs} — GitHub orgs whose admins map to
+ *       systems-admin. Default: {@code Snapdragon-Systems,Snapdragon}.</li>
+ *   <li>{@code app.actions.gh-org-admin.systems-admin-role} — target Casdoor role.
+ *       Default: {@code admin}.</li>
  * </ul>
  *
- * <p>Circuit breaker wraps the GitHub-side calls — a GitHub outage
- * fails the action without piling up retries.
+ * <p>Circuit breaker wraps the GitHub-side calls — a GitHub outage fails the
+ * action without piling up retries.
  */
 @Service
 public class GitHubOrgAdminGrantAction {
@@ -63,6 +60,7 @@ public class GitHubOrgAdminGrantAction {
     private final GitHubTokenCache tokenCache;
     private final Set<String> snapdragonOrgs;
     private final String systemsAdminRole;
+    private final boolean enabled;
 
     private final Counter granted;
     private final Counter revoked;
@@ -75,12 +73,14 @@ public class GitHubOrgAdminGrantAction {
             GitHubTokenCache tokenCache,
             @Value("${app.actions.gh-org-admin.orgs:Snapdragon-Systems,Snapdragon}") String orgsCsv,
             @Value("${app.actions.gh-org-admin.systems-admin-role:admin}") String systemsAdminRole,
+            @Value("${app.actions.gh-org-admin.enabled:false}") boolean enabled,
             MeterRegistry registry) {
         this.github = github;
         this.systemsCasdoor = systemsCasdoor;
         this.tokenCache = tokenCache;
         this.snapdragonOrgs = parseCsv(orgsCsv);
         this.systemsAdminRole = systemsAdminRole;
+        this.enabled = enabled;
         this.granted = Counter.builder("actions.gh_org_admin.granted")
                 .description("Users granted snapdragon.systems admin via GitHub org membership")
                 .register(registry);
@@ -95,16 +95,24 @@ public class GitHubOrgAdminGrantAction {
                 .register(registry);
     }
 
+    /** Whether the GitHub org admin auto-grant feature is enabled on this instance. */
+    public boolean isEnabled() { return enabled; }
+
     /**
      * Evaluate a single user against the org-admin rule on demand.
      * Called by the registration controller as soon as the
      * registration remote has the user's GitHub access_token. Returns
      * the resolved Casdoor member identifier on grant, or a 403
      * {@link ResponseStatusException} when the user has no
-     * Snapdragon admin reach.
+     * Snapdragon admin reach. Returns 404 when the feature is disabled
+     * ({@code app.actions.gh-org-admin.enabled=false}).
      */
     @CircuitBreaker(name = "github")
     public Mono<String> evaluateAndGrant(String githubBearer, String snapdragonUsername) {
+        if (!enabled) {
+            return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "GitHub org admin auto-grant is not enabled on this instance"));
+        }
         // Remember this user's token so the scheduled revoke reconciler
         // can re-ask GitHub on their behalf later — GitHub admin reach is
         // only visible through the user's own token.

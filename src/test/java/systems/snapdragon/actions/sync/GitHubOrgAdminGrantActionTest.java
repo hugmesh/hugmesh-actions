@@ -26,13 +26,30 @@ import static org.mockito.Mockito.when;
 class GitHubOrgAdminGrantActionTest {
 
     private GitHubOrgAdminGrantAction newAction(GitHubClient github, CasdoorClient casdoor) {
+        return newAction(github, casdoor, true);
+    }
+
+    private GitHubOrgAdminGrantAction newAction(GitHubClient github, CasdoorClient casdoor, boolean enabled) {
         when(casdoor.organization()).thenReturn("snapdragon-systems");
         return new GitHubOrgAdminGrantAction(
                 github, casdoor,
                 new GitHubTokenCache(Duration.ofHours(24)),
                 "Snapdragon-Systems,Snapdragon",
                 "admin",
+                enabled,
                 new SimpleMeterRegistry());
+    }
+
+    @Test
+    void disabled_returns404() {
+        GitHubOrgAdminGrantAction action = newAction(
+                Mockito.mock(GitHubClient.class),
+                Mockito.mock(CasdoorClient.class),
+                false);
+        StepVerifier.create(action.evaluateAndGrant("ghtok", "alice"))
+                .expectErrorMatches(e -> e instanceof org.springframework.web.server.ResponseStatusException rse
+                        && rse.getStatusCode().value() == 404)
+                .verify();
     }
 
     @Test
