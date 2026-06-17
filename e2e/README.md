@@ -62,6 +62,17 @@ game-master / admin) hitting:
 If a SecurityConfig path-matcher regresses, the matching role
 scenario fails loudly.
 
+> **What is actually asserted today.** Only the **anonymous** scenario
+> runs end-to-end right now — it needs no bearer token. The five
+> authenticated tiers (player / producer / mod / game-master / admin)
+> depend on real per-role tokens, and the bring-up's token-generation
+> step is still a stub (see [Token wiring](#token-wiring)); until it is
+> wired, those scenarios fail at the `Given "<role>" is authenticated`
+> step (the helper throws when no token is present) rather than
+> exercising the role gate. The SecurityConfig path-matchers themselves
+> are meanwhile locked in by the JVM `SecurityConfigPathRulesTest` /
+> `SecurityConfigSpecPathsTest` unit tests, which do not need tokens.
+
 ## Reports
 
 Every run produces:

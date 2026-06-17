@@ -85,3 +85,13 @@ Note: this service listens on port 8090 by default but the in-cluster deployment
 maps it to 8080. The readiness/liveness probes must switch to HTTPS
 (`scheme: HTTPS`) once `SSL_ENABLED=true`, and the be-gateway must present its
 client cert AND call this API over `https://` for the route to keep working.
+
+## Roadmap — 🔭 planned (NOT shipped)
+
+- **Casdoor MFA / step-up.** A platform-wide design (WebAuthn + TOTP +
+  recovery; `amr`/`acr` → `MFA_SATISFIED`; step-up on sensitive operations) is
+  design-complete but **not yet implemented in this service**. When adopted, the
+  `ROLE_ADMIN` registration endpoint would gain an `mfa_satisfied` / `acr`
+  authority check on top of `ROLE_ADMIN`, layered through the shared
+  `CasdoorAuthorities` / `Roles` converter. Today the endpoint authorizes on
+  `ROLE_ADMIN` alone — there is no MFA/`acr` check in the code.
