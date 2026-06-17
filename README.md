@@ -25,6 +25,39 @@ snapdragon.systems automatically becomes an `admin` on snapdragon.games,
 and a platform admin who loses their GitHub org-admin reach
 automatically loses snapdragon.systems admin.
 
+```mermaid
+flowchart LR
+    GW["snapdragon-be-gateway<br/>(mTLS client cert)"] -->|"POST /api/registration/**<br/>ROLE_ADMIN JWT"| API
+
+    subgraph API["snapdragon-actions (snapdragon-api)"]
+        RC["RegistrationController"]
+        GM["GameMasterAdminSyncAction<br/>@Scheduled 60s"]
+        REV["GitHubOrgAdminReconcileAction<br/>@Scheduled 6h"]
+        GHA["GitHubOrgAdminGrantAction"]
+        RC --> GHA
+    end
+
+    SC["snapdragon.systems Casdoor<br/>(canonical JWT issuer)"]
+    GC["snapdragon.games Casdoor"]
+    GH["GitHub API"]
+
+    GM -->|"read game-master / write admin"| SC
+    GM -->|"write threewizards admin"| GC
+    GHA -.->|"grant/deny systems admin<br/>(disabled by default)"| SC
+    GHA -.->|"check org-admin reach<br/>(disabled by default)"| GH
+    REV -.->|"prune-only revoke<br/>(no-op when disabled)"| SC
+
+    MFA["MFA / acr step-up on ROLE_ADMIN"]:::planned
+    MFA -.-> RC
+
+    classDef planned stroke-dasharray:4 5,stroke:#999,color:#999
+```
+
+Solid edges are **✅ shipped** and active by default; the dotted
+GitHub-org-admin edges are shipped but **gated off by default**
+(`app.actions.gh-org-admin.enabled=false`); the greyed `MFA` node is
+**🔭 planned** (no code yet — see [Roadmap](#roadmap--planned-not-shipped)).
+
 ## Actions
 
 ### `GameMasterAdminSyncAction` — systems game-master → games admin
@@ -49,6 +82,15 @@ opens the breaker and the next tick retries instead of piling up work.
 | `{alice}` | `{alice}` | `{alice}` (no-op) |
 
 ### `GitHubOrgAdminGrantAction` — GitHub org admin → systems admin
+
+> **Disabled by default (✅ shipped).** The whole GitHub-org-admin
+> auto-grant feature is gated behind a master switch
+> `app.actions.gh-org-admin.enabled` (env `GH_ORG_ADMIN_ENABLED`),
+> **default `false`**. While disabled the evaluate endpoint returns
+> **`404`** (not `403`), the scheduled reconciler is a **no-op** (no
+> GitHub calls, no Casdoor writes), and the cached-token path is never
+> seeded. Superadmin opts in by setting the env var and rolling the pod;
+> everything below describes the **enabled** behaviour.
 
 Auto-grants snapdragon.systems `admin` to a GitHub-authenticated user
 who holds admin authority on a configured Snapdragon GitHub org —
@@ -118,12 +160,13 @@ order:
 1. **Local reserved-username gate** (runs unconditionally) — rejects
    `422` any username that, normalised to the vanity-subdomain DNS-label
    form, collides with a dedicated gateway route/prefix. The reserved
-   list (`ReservedNames`) is the canonical union of the fe-/be-gateway
-   route prefixes, reserved subdomains, the snapdragon.games app routes,
-   and defensive infra names — **kept byte-for-byte in lockstep** with
-   `snapdragon-gateway`'s `CanonicalSeed` and `snapdragon-admin-bff-api`'s
-   copy. This is defence-in-depth; Casdoor's own forbidden-username
-   policy is the source gate.
+   list (`ReservedNames`, currently **62 labels**) is the canonical union
+   of the fe-/be-gateway route prefixes, reserved subdomains, the
+   snapdragon.games app routes, and defensive infra names — **kept
+   byte-for-byte in lockstep** with `snapdragon-gateway`'s `CanonicalSeed`
+   and `snapdragon-admin-bff-api`'s copy (all three must agree on the same
+   62). This is defence-in-depth; Casdoor's own forbidden-username policy
+   is the source gate.
 2. **Federation confusable / availability gate** (defence-in-depth,
    **config-gated, default off**) — when
    `app.federation.username-check.enabled=true`, asks
@@ -138,7 +181,10 @@ order:
 3. **Grant** — only when both gates pass, runs
    `GitHubOrgAdminGrantAction.evaluateAndGrant`; returns
    `{ memberId }` on success or `403` when the user has no Snapdragon
-   org-admin reach.
+   org-admin reach. **When the master switch
+   `app.actions.gh-org-admin.enabled` is `false` (the default), this step
+   short-circuits and the endpoint returns `404`** — the reserved-name
+   and confusable gates above still run, but no grant is ever attempted.
 
 ## Security & multi-tenancy
 
@@ -165,14 +211,16 @@ in [SECURITY.md](SECURITY.md)):
   chaining to the cluster CA — only services signed by the Vault/ESO PKI
   process (the be-gateway) can call this API at all.
 
-### Domain-scoping (issuer-keyed) — on `feat/domain-foundation` (PR #12)
+### Domain-scoping (issuer-keyed) — ✅ shipped
 
 The platform's per-brand multi-tenancy keys a token's brand off its
 **cryptographically-validated issuer** (one Casdoor per brand → distinct
-`iss`). The open **`feat/domain-foundation`** branch (PR #12) adopts the
-same canonical machinery the gateways use, so this service participates
-consistently. **Not yet on `main`** — the files below live only on that
-branch:
+`iss`). This service adopts the same canonical machinery the gateways
+use, so it participates consistently. The pieces below are **part of the
+service today** (merged via PR #12), and `SecurityConfig` already
+delegates JWT → authority mapping to
+`CasdoorAuthorities.converter(domainRegistry)` and swaps to the per-issuer
+resolver only when the registry is genuinely multi-issuer:
 
 - **`CasdoorAuthorities`** — the single canonical JWT → authority
   converter (copied from `snapdragon-gateway`), used by both the single-
@@ -203,6 +251,21 @@ and the reconcilers are scheduled (no request principal). It owns no
 per-domain row store, so it gains the canonical converter + issuer-keyed
 `DOMAIN_<x>` authority + multi-issuer back-compat — but there is no
 domain-scoped query to filter, and none is invented.
+
+### Roadmap — 🔭 planned (NOT shipped)
+
+These platform-wide initiatives would touch this service when adopted.
+They are **design-only today**; nothing below is in the code on `main`,
+and none should be read as a current capability.
+
+- **Casdoor MFA / step-up (🔭 planned).** A platform-wide design (9-PR
+  plan) introduces WebAuthn + TOTP + recovery with `amr`/`acr` →
+  `MFA_SATISFIED` and step-up enforcement on sensitive operations. Because
+  this service is a Casdoor-JWT resource server and its
+  `CasdoorAuthorities` / `Roles` converter is the *shared* authority
+  machinery, MFA enforcement (e.g. an `mfa_satisfied` / `acr` check
+  guarding the `ROLE_ADMIN` registration endpoint) would land here. No
+  such check exists yet — the endpoint authorizes on `ROLE_ADMIN` alone.
 
 ## Metrics
 
@@ -236,7 +299,9 @@ list of keys and defaults. Highlights:
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_SYSTEMS_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
+| GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
 | GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `Snapdragon-Systems,Snapdragon` |
+| Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
 | GitHub token TTL | `app.actions.gh-org-admin.token-ttl` (`GH_ORG_ADMIN_TOKEN_TTL`) | `PT24H` |
 | Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |
 | Federation confusable gate | `app.federation.username-check.enabled` (`APP_FEDERATION_USERNAME_CHECK_ENABLED`) | `false` |
@@ -273,9 +338,27 @@ restarting it replays the next tick against live Casdoor state.
 A standard Spring Boot Maven build (`./mvnw package`); the multi-stage
 `Dockerfile` produces a slim JRE runtime image. CI is **GitLab**
 (`.gitlab-ci.yml`): the GitHub repo is pull-mirrored into the in-cluster
-GitLab, which builds + pushes the container image to the in-cluster
-registry on push to the default branch / on tag. Images carry no keys —
-PKI material is supplied from the USB at first boot.
+GitLab, which runs the pipeline on push / mirror-sync. Images carry no
+keys — PKI material is supplied from the USB at first boot.
+
+The pipeline has three stages (`stages: [test, build, pentest]`):
+
+1. **`test`** (✅ shipped) — runs `./mvnw verify -B` inside an
+   `eclipse-temurin:21-jdk-noble` container on the default branch / merge
+   requests / tags, publishing the JUnit surefire reports as artifacts.
+2. **`build:image`** (✅ shipped) — `needs: [test]`; builds and pushes the
+   container image to the in-cluster registry on the default branch / on
+   tag, tagged with the release tag or short SHA plus a moving branch tag.
+3. **`pentest`** (✅ shipped) — the continuous-OWASP stage. Thin
+   `pentest:sca` / `pentest:dast` jobs `extends:` the centralized hidden
+   `.pentest-sca` / `.pentest-dast-baseline` templates `include`d from
+   `snapdragon-generator` (`/tests/pentest/ci/pentest-stage.gitlab-ci.yml`),
+   so SCA (OWASP Dependency-Check) and DAST (authenticated ZAP baseline +
+   probes + nuclei) share one source of truth across every onboarded repo.
+   Both run on the default branch / merge requests with
+   `allow_failure: true` so findings surface in the MR security widget
+   without blocking the pipeline. `make pentest` runs the same posture
+   locally as a pre-push gate (see the `Makefile`).
 
 ## Adding new actions
 
