@@ -61,6 +61,8 @@ public final class ReservedNames {
             "login", "logout", "mod", "user", "users",
             // be-gateway route prefixes
             "api", "_matrix", "matrix", "mastodon", "pleroma", "forum", "oauth", "oauth2",
+            // optional-service route prefixes (LocalTube /tube/** route-access seed)
+            "tube",
             // reserved subdomains
             "id", "auth", "scale", "headscale", "www",
             // defensive web / infra names
@@ -73,7 +75,7 @@ public final class ReservedNames {
             "games", "play", "wasm", "wasm-fragment", "producer",
             "producer-registration", "publisher", "registration", "banned",
             "api-docs", "docs", "games-dodecahedron", "games-rpg-maker",
-            "games-three-wizards", "games-vn-maker");
+            "games-three-wizards", "games-vn-maker", "games-instances-console");
 
     /**
      * Normalise a candidate username to the DNS-label form the vanity

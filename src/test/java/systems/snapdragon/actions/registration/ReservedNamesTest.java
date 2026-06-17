@@ -43,10 +43,24 @@ class ReservedNamesTest {
         assertThat(ReservedNames.isReserved(label)).isTrue();
     }
 
+    /**
+     * The optional-service / games-console route prefixes added for parity with
+     * the canonical source (reserved-prefixes.yaml): {@code tube} (LocalTube
+     * {@code /tube/**} route) and {@code games-instances-console} (the per-instance
+     * game-server console dispatcher Service the {@code /games/servers/**} route
+     * targets). A user must not be able to register either handle.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"tube", "games-instances-console"})
+    void everyOptionalServicePrefixIsReserved(String label) {
+        assertThat(ReservedNames.isReserved(label)).isTrue();
+    }
+
     @Test
-    void reservedSetIsExactlyTheCanonical62Labels() {
+    void reservedSetIsExactlyTheCanonical64Labels() {
         // Guards against silent drift from the canonical federation/user-bff list.
-        assertThat(ReservedNames.RESERVED).hasSize(62);
+        // 62 -> 64: added `tube` + `games-instances-console` (canonical revision 3).
+        assertThat(ReservedNames.RESERVED).hasSize(64);
     }
 
     @ParameterizedTest
