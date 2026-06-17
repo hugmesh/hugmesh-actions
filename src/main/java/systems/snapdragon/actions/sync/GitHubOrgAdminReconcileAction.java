@@ -107,6 +107,10 @@ public class GitHubOrgAdminReconcileAction {
         fixedDelayString = "${app.actions.gh-org-admin.reconcile.interval-ms:21600000}",
         initialDelayString = "${app.actions.gh-org-admin.reconcile.initial-delay-ms:30000}")
     public void runTick() {
+        if (!grantAction.isEnabled()) {
+            log.debug("[gh-org-admin-reconcile] skipped — feature not enabled");
+            return;
+        }
         log.debug("[gh-org-admin-reconcile] tick start");
         runOnce()
             .doOnSuccess(v -> lastSuccessAt.set(Instant.now()))

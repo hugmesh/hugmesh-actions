@@ -45,11 +45,14 @@ app:
       initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
       systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}
       games-role:         ${GM_SYNC_GAMES_ROLE:admin}
-    # GitHub-org admin auto-grant. Triggered on demand by the
-    # registration remote (via POST /api/registration/github-org-admin/
-    # evaluate). The orgs CSV is the set of GitHub organisations whose
-    # admins should automatically map to snapdragon.systems admin.
+    # GitHub-org admin auto-grant. DEFAULT OFF — superadmin opts in by
+    # setting GH_ORG_ADMIN_ENABLED=true (or app.actions.gh-org-admin.enabled=true).
+    # When disabled: the /api/registration/github-org-admin/evaluate endpoint
+    # returns 404 and the scheduled revoke reconciler is a no-op.
+    # When enabled: GitHub-org admins that register via OAuth are auto-granted
+    # the systems-admin role; the reconciler revokes it if they lose org reach.
     gh-org-admin:
+      enabled:            ${GH_ORG_ADMIN_ENABLED:false}
       orgs:               ${GH_ORG_ADMIN_ORGS:Snapdragon-Systems,Snapdragon}
       systems-admin-role: ${GH_ORG_ADMIN_ROLE:admin}
       # How long a GitHub access_token captured at sign-up stays usable
