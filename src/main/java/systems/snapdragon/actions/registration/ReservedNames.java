@@ -59,10 +59,18 @@ public final class ReservedNames {
             // fe-gateway route prefixes
             "admin", "apidocs", "be", "bff", "_fragments", "_remotes", "fragments",
             "login", "logout", "mod", "user", "users",
-            // be-gateway route prefixes
-            "api", "_matrix", "matrix", "mastodon", "pleroma", "forum", "oauth", "oauth2",
-            // optional-service route prefixes (LocalTube /tube/** route-access seed)
-            "tube",
+            // superadmin: TAILNET superadmin App-Store console route prefix
+            // (/superadmin/appstore/** on the superadmin-gateway)
+            "superadmin",
+            // be-gateway route prefixes + publicly-routable homeserver surfaces
+            // (_synapse: /_synapse/** Matrix Synapse-compat; media: /media/** Mastodon)
+            "api", "_matrix", "matrix", "_synapse", "media", "mastodon", "pleroma",
+            "forum", "phpbb", "oauth", "oauth2",
+            // optional-service route prefixes / reserved subdomains: LocalTube
+            // (/tube/content/** route-access seed) + the optional video/wiki services
+            // (owncast/wiki ride /bff/** + /social/wiki/**; reserved so a vanity
+            // owncast./wiki. handle can never collide)
+            "tube", "owncast", "wiki",
             // reserved subdomains
             "id", "auth", "scale", "headscale", "www",
             // defensive web / infra names

@@ -56,11 +56,31 @@ class ReservedNamesTest {
         assertThat(ReservedNames.isReserved(label)).isTrue();
     }
 
+    /**
+     * The 6 labels added to reconcile this copy with the canonical
+     * reserved-prefixes.yaml (drift fix): {@code superadmin} (the TAILNET
+     * superadmin App-Store console {@code /superadmin/appstore/**} route),
+     * {@code _synapse} + {@code media} (the publicly-routable homeserver client
+     * surfaces {@code /_synapse/**} and {@code /media/**}), {@code phpbb} (the
+     * phpBB forum forward-reserve), and {@code owncast} + {@code wiki} (the
+     * optional video/wiki services, forward-reserved like forum/phpbb). A user
+     * must not be able to register any of these handles.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"superadmin", "_synapse", "media", "phpbb", "owncast", "wiki"})
+    void everyReconciledCanonicalLabelIsReserved(String label) {
+        assertThat(ReservedNames.isReserved(label)).isTrue();
+        assertThat(ReservedNames.RESERVED).contains(label);
+    }
+
     @Test
-    void reservedSetIsExactlyTheCanonical64Labels() {
-        // Guards against silent drift from the canonical federation/user-bff list.
-        // 62 -> 64: added `tube` + `games-instances-console` (canonical revision 3).
-        assertThat(ReservedNames.RESERVED).hasSize(64);
+    void reservedSetIsExactlyTheCanonical70Labels() {
+        // Guards against silent drift from the canonical reserved-prefixes.yaml
+        // (and the federation/user-bff RESERVED_LABELS copies).
+        // 62 -> 64: added `tube` + `games-instances-console`.
+        // 64 -> 70: reconciled with the canonical YAML — added `superadmin`,
+        // `_synapse`, `media`, `phpbb`, `owncast`, `wiki` (canonical revision 3).
+        assertThat(ReservedNames.RESERVED).hasSize(70);
     }
 
     @ParameterizedTest
