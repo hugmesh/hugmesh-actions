@@ -163,6 +163,7 @@ public class SecurityConfig {
     SecurityWebFilterChain devFilterChain(ServerHttpSecurity http) {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .headers(SecurityConfig::hardenHeaders)
                 .authorizeExchange(ex -> {
                     commonRoutes(ex);
                     ex.pathMatchers(SPEC_PATHS).permitAll();
@@ -183,6 +184,7 @@ public class SecurityConfig {
     SecurityWebFilterChain filterChain(ServerHttpSecurity http) {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .headers(SecurityConfig::hardenHeaders)
                 .authorizeExchange(ex -> {
                     commonRoutes(ex);
                     ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
@@ -190,6 +192,45 @@ public class SecurityConfig {
                 })
                 .oauth2ResourceServer(this::configureResourceServer)
                 .build();
+    }
+
+    /**
+     * Reactive HTTP security-header hardening (OWASP secure-headers / NIST 800-228 /
+     * ASVS V14.4). snapdragon-actions is a pure-JSON resource-server effector that
+     * sits BEHIND the snapdragon-gateway front door and never serves an HTML document
+     * — so it gets the BFF-minimal, API-defensive header set, NOT the full
+     * browser-policy set:
+     *
+     * <ul>
+     *   <li><b>Content-Security-Policy: {@code default-src 'none'; frame-ancestors
+     *       'none'}</b> — defence-in-depth for a no-document API: a sniffed/embedded
+     *       response loads nothing and cannot be framed.</li>
+     *   <li><b>NO HSTS</b> — Strict-Transport-Security is meaningless over the
+     *       plaintext intra-mesh hop and belongs only at the single TLS-terminating
+     *       gateway front door (emitting it here would be misleading). snapdragon-actions
+     *       is NOT the gateway, so the gateway-only extras (HSTS, Permissions-Policy,
+     *       COOP/CORP, the UI-shell CSP) are deliberately omitted.</li>
+     *   <li><b>Spring secure defaults KEPT</b> — {@code X-Content-Type-Options: nosniff},
+     *       {@code X-Frame-Options: DENY}, {@code Cache-Control: no-store} and
+     *       {@code Referrer-Policy} are reactive Spring Security defaults and are NOT
+     *       disabled. Referrer-Policy is set explicitly to {@code no-referrer} so the
+     *       posture is pinned and cannot silently drift.</li>
+     * </ul>
+     *
+     * <p>This is purely ADDITIVE: it adds response headers and keeps every Spring
+     * default. It does NOT touch authz rules, issuer validation, or the
+     * {@code csrf.disable()} posture (correct-by-design for a stateless bearer
+     * resource server — bearer tokens are not ambient like cookies, so there is no
+     * CSRF vector).
+     */
+    private static void hardenHeaders(ServerHttpSecurity.HeaderSpec h) {
+        h.contentSecurityPolicy(csp ->
+                csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"));
+        h.referrerPolicy(rp -> rp.policy(
+                org.springframework.security.web.server.header
+                        .ReferrerPolicyServerHttpHeadersWriter.ReferrerPolicy.NO_REFERRER));
+        // X-Content-Type-Options (nosniff), X-Frame-Options (DENY) and Cache-Control
+        // are reactive Spring Security secure defaults — left implicit, NOT disabled.
     }
 
     /**
