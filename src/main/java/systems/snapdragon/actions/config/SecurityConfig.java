@@ -1,6 +1,7 @@
 package systems.snapdragon.actions.config;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -106,11 +107,36 @@ public class SecurityConfig {
     private final ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
             tenantAuthManagerResolver;
 
+    /** D8 MFA floor — derive the {@code MFA_SATISFIED} marker at all. Ships dark:
+     *  {@code app.mfa.enabled} defaults to {@code false}, so the converter emits the
+     *  legacy byte-identical authority set and the marker is never produced. */
+    private final boolean mfaEnabled;
+
+    /** D8 MFA freshness window in millis ({@code app.mfa.freshness-window}, default
+     *  10m): a {@code mfa_satisfied_at} stamp older than this (or in the future) does
+     *  NOT yield the marker. */
+    private final long mfaFreshnessWindowMillis;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SecurityConfig(DomainRegistry domainRegistry,
+                          ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
+                                  tenantAuthManagerResolver,
+                          @Value("${app.mfa.enabled:false}") boolean mfaEnabled,
+                          @Value("${app.mfa.freshness-window:600000}") long mfaFreshnessWindowMillis) {
+        this.domainRegistry = domainRegistry;
+        this.tenantAuthManagerResolver = tenantAuthManagerResolver;
+        this.mfaEnabled = mfaEnabled;
+        this.mfaFreshnessWindowMillis = mfaFreshnessWindowMillis;
+    }
+
+    /** Legacy convenience (MFA derivation OFF, default 10m window) — keeps the
+     *  pre-D8 slice tests compiling and proves the dark default emits the
+     *  byte-identical legacy authority set. Production uses the {@code @Autowired}
+     *  constructor above. */
     public SecurityConfig(DomainRegistry domainRegistry,
                           ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
                                   tenantAuthManagerResolver) {
-        this.domainRegistry = domainRegistry;
-        this.tenantAuthManagerResolver = tenantAuthManagerResolver;
+        this(domainRegistry, tenantAuthManagerResolver, false, 600_000L);
     }
 
     /**
@@ -194,6 +220,7 @@ public class SecurityConfig {
     }
 
     Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
-        return CasdoorAuthorities.converter(domainRegistry);
+        return CasdoorAuthorities.converter(domainRegistry,
+                new CasdoorAuthorities.MfaConfig(mfaEnabled, mfaFreshnessWindowMillis));
     }
 }

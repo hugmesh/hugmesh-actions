@@ -186,4 +186,59 @@ class RolesTest {
             }
         }
     }
+
+    // ── D8 MFA freshness — Roles.isMfaSatisfied(jwt, now, window) ─────────────
+    // Parity with snapdragon-gateway's RolesTest. The claim is the BFF-written flat
+    // top-level snake_case `mfa_satisfied_at`, numeric epoch-MILLIS carried as a
+    // STRING (Casdoor User.properties is a Go map[string]string). Window default is
+    // 10m (600000ms); `now` is injected for deterministic freshness assertions.
+    @Nested
+    class MfaSatisfied {
+
+        static final long WINDOW = 600_000L;   // 10 min
+
+        private Jwt mfaJwt(Object satisfiedAt) {
+            return jwt("http://casdoor:8000", Map.of(Roles.MFA_SATISFIED_AT_CLAIM, satisfiedAt));
+        }
+
+        @Test
+        void freshStampString_withinWindow_true() {
+            long now = 1_750_000_000_000L;
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now - 60_000L)), now, WINDOW)).isTrue();
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now - WINDOW)), now, WINDOW)).isTrue();
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now)), now, WINDOW)).isTrue();
+        }
+
+        @Test
+        void staleStamp_pastWindow_false() {
+            long now = 1_750_000_000_000L;
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now - WINDOW - 1)), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now - 3_600_000L)), now, WINDOW)).isFalse();
+        }
+
+        @Test
+        void futureStamp_rejected() {
+            long now = 1_750_000_000_000L;
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now + 1)), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(mfaJwt(Long.toString(now + 3_600_000L)), now, WINDOW)).isFalse();
+        }
+
+        @Test
+        void missingOrMalformed_failsClosed() {
+            long now = 1_750_000_000_000L;
+            assertThat(Roles.isMfaSatisfied(jwt("http://casdoor:8000", Map.of("roles", List.of("admin"))), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(mfaJwt("   "), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(mfaJwt("not-a-number"), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(mfaJwt("0"), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(mfaJwt("-1"), now, WINDOW)).isFalse();
+            assertThat(Roles.isMfaSatisfied(null, now, WINDOW)).isFalse();
+        }
+
+        @Test
+        void numericClaim_alsoTolerated() {
+            long now = 1_750_000_000_000L;
+            assertThat(Roles.isMfaSatisfied(mfaJwt(now - 60_000L), now, WINDOW)).isTrue();
+            assertThat(Roles.isMfaSatisfied(mfaJwt(now + 1L), now, WINDOW)).isFalse();
+        }
+    }
 }

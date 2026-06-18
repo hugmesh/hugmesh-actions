@@ -78,13 +78,35 @@ public class TenancyResourceServerConfig {
      *  multi-brand configs (each brand decoder discovers from its own iss). */
     private final String backCompatJwkSetUri;
 
+    /** D8 MFA floor config — MUST be the SAME {@code app.mfa.*} properties
+     *  {@link SecurityConfig} reads so the single-issuer and multi-issuer paths
+     *  derive the {@code MFA_SATISFIED} marker BYTE-IDENTICALLY. Ships dark
+     *  ({@code app.mfa.enabled} default {@code false}). */
+    private final boolean mfaEnabled;
+    private final long mfaFreshnessWindowMillis;
+
+    @org.springframework.beans.factory.annotation.Autowired
     public TenancyResourceServerConfig(
             DomainRegistry domainRegistry,
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri:}") String backCompatIssuer,
-            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}") String backCompatJwkSetUri) {
+            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}") String backCompatJwkSetUri,
+            @Value("${app.mfa.enabled:false}") boolean mfaEnabled,
+            @Value("${app.mfa.freshness-window:600000}") long mfaFreshnessWindowMillis) {
         this.domainRegistry = domainRegistry;
         this.backCompatIssuer = trimSlash(backCompatIssuer);
         this.backCompatJwkSetUri = backCompatJwkSetUri == null ? "" : backCompatJwkSetUri.trim();
+        this.mfaEnabled = mfaEnabled;
+        this.mfaFreshnessWindowMillis = mfaFreshnessWindowMillis;
+    }
+
+    /** Legacy convenience (MFA derivation OFF, default 10m window) — keeps the
+     *  pre-D8 slice tests compiling. Production uses the {@code @Autowired}
+     *  constructor above. */
+    public TenancyResourceServerConfig(
+            DomainRegistry domainRegistry,
+            String backCompatIssuer,
+            String backCompatJwkSetUri) {
+        this(domainRegistry, backCompatIssuer, backCompatJwkSetUri, false, 600_000L);
     }
 
     private static String trimSlash(String s) {
@@ -163,6 +185,7 @@ public class TenancyResourceServerConfig {
      *  maps to the same authorities regardless of which decoder path validated it),
      *  with the issuer-derived {@code DOMAIN_<x>} added. */
     private Converter<Jwt, Flux<GrantedAuthority>> authoritiesConverter() {
-        return CasdoorAuthorities.converter(domainRegistry);
+        return CasdoorAuthorities.converter(domainRegistry,
+                new CasdoorAuthorities.MfaConfig(mfaEnabled, mfaFreshnessWindowMillis));
     }
 }
