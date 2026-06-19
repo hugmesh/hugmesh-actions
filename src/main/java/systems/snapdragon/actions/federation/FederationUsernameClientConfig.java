@@ -69,8 +69,15 @@ public class FederationUsernameClientConfig {
     /**
      * A caching client-credentials token supplier. Holds the last minted token +
      * the instant it should be considered stale, and re-mints only when stale.
+     *
+     * <p>Public + reused: the OIDC default-role registration hook
+     * ({@code OidcRoleHookClientConfig}) mints its admin-bff ROLE_SERVICE
+     * bearer through this exact same supplier against the same
+     * {@code app.casdoor.systems.*} credentials — one canonical
+     * client-credentials mint+cache for every internal ROLE_SERVICE caller
+     * in this service.
      */
-    static Supplier<Mono<String>> serviceTokenSupplier(WebClient casdoor, String clientId, String clientSecret) {
+    public static Supplier<Mono<String>> serviceTokenSupplier(WebClient casdoor, String clientId, String clientSecret) {
         final AtomicReference<Cached> cache = new AtomicReference<>(null);
         return () -> Mono.defer(() -> {
             Cached c = cache.get();

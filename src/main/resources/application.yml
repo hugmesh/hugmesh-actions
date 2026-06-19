@@ -70,6 +70,40 @@ app:
       reconcile:
         interval-ms:      ${GH_ORG_ADMIN_RECONCILE_INTERVAL_MS:21600000}
         initial-delay-ms: ${GH_ORG_ADMIN_RECONCILE_INITIAL_DELAY_MS:30000}
+    # OIDC default-role registration hook. DEFAULT OFF — local/dev/CI leave it
+    # off so OidcDefaultRoleProbeAction.runTick() returns immediately (no Casdoor
+    # read, no admin-bff call) and the OidcRoleHookClient bean is not even created
+    # (its config is @ConditionalOnProperty enabled=true). When enabled, a
+    # scheduled probe observes the newest Casdoor users (get-sorted-users by
+    # created_time, within the lookback window), diffs them against a process-local
+    # seen-set, and for each genuinely-new user whose signupApplication maps to a
+    # configured provider calls the EXISTING admin-bff ROLE_SERVICE endpoint
+    # POST /bff/internal/oidc/first-login to apply that user's OIDC-provider
+    # default roles. NO-OP-UNTIL-CONFIGURED: even enabled, if no default-role map
+    # is configured for a provider+domain the admin-bff endpoint returns
+    # assignedRoles:[] and writes nothing; and an empty provider-map here means no
+    # user is ever mapped. The ROLE_SERVICE bearer is minted via the
+    # systems-Casdoor client-credentials grant (reuses app.casdoor.systems.*).
+    oidc-default-roles:
+      enabled:            ${APP_OIDC_DEFAULT_ROLES_ENABLED:false}
+      # In-cluster DNS of snapdragon-admin-bff-api. Only consulted when enabled.
+      admin-bff-base-url: ${APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL:http://snapdragon-admin-bff-api.snapdragon-backend.svc.cluster.local:8080}
+      # 5-minute tick — role assignment lands on the next probe after signup,
+      # matching the platform's existing next-tick propagation model.
+      interval-ms:        ${APP_OIDC_DEFAULT_ROLES_INTERVAL_MS:300000}
+      initial-delay-ms:   ${APP_OIDC_DEFAULT_ROLES_INITIAL_DELAY_MS:15000}
+      # Newest-users page size requested from get-sorted-users each tick.
+      limit:              ${APP_OIDC_DEFAULT_ROLES_LIMIT:50}
+      # Only users created within this window are considered new (ISO-8601
+      # duration). Also bounds the process-local seen-set.
+      lookback:           ${APP_OIDC_DEFAULT_ROLES_LOOKBACK:PT10M}
+      # Single-issuer cluster: the one DOMAIN_default brand. Multi-brand would
+      # derive domain per-user from the issuer/org (out of scope — flagged).
+      domain:             ${APP_OIDC_DEFAULT_ROLES_DOMAIN:default}
+      # Maps Casdoor signupApplication -> OIDC provider key. CSV of key=value
+      # pairs, e.g. app-google=google,app-github=github. Empty (default) means
+      # NO user is ever mapped, so the probe is effectively inert even if enabled.
+      provider-map:       ${APP_OIDC_DEFAULT_ROLES_PROVIDER_MAP:}
   github:
     # Override for GitHub Enterprise installs. Public default is fine
     # for the SaaS GitHub the project ships on.
@@ -121,6 +155,18 @@ resilience4j:
         # or error -> collide=true), and this breaker short-circuits to the same
         # fail-closed fallback once federation is repeatedly unhealthy, so a
         # federation brown-out never stalls a grant nor admits a look-alike.
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      admin-bff:
+        # Bounds the cost of the first-login default-role call to
+        # snapdragon-admin-bff-api. The OidcRoleHookClient already fails OPEN
+        # (a timeout / 5xx -> empty no-op response, never a fabricated grant),
+        # and this breaker short-circuits to the same fail-open fallback once
+        # admin-bff is repeatedly unhealthy, so a brown-out never stalls a probe
+        # tick. Only consulted when app.actions.oidc-default-roles.enabled=true.
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50
