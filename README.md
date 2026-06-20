@@ -223,6 +223,30 @@ in [SECURITY.md](SECURITY.md)):
   chaining to the cluster CA — only services signed by the Vault/ESO PKI
   process (the be-gateway) can call this API at all.
 
+### How this service fits the platform auth model
+
+The platform's user-facing auth is an SSO flow: `login-ui` runs a Casdoor
+OIDC authorization-code (PKCE) redirect, `user-bff` performs the
+server-side code→token exchange and holds per-session JWT custody, and
+the browser only ever holds an **opaque `bff_`-prefixed session** (the
+end user never sees a Casdoor JWT). The `snapdragon-gateway` is a pure
+Casdoor-JWT OAuth2 resource server: a pre-security exchange filter swaps
+the `bff_` session for the internal custody JWT, then runs JWT validation
++ a data-driven role gate (`gateway_route_access` Postgres table via
+`GatewayRouteAccessFilter`).
+
+`snapdragon-actions` sits **behind** that gateway as another Casdoor-JWT
+resource server. It is **not** part of the login/session path — it never
+performs a code exchange, holds no session, and validates only the
+fully-resolved internal JWT the gateway forwards. The login/session
+relocation (admin-bff → user-bff) and the `snapdragon-auth-core`
+extraction (shared account/session/MFA/Casdoor-admin infra, consumed by
+user-bff + admin-bff only) therefore **do not touch this repo's code** —
+it consumes neither. The one auth machinery it *does* share is the
+stateless JWT→authority converter (`CasdoorAuthorities`, copied from
+`snapdragon-gateway`) and the `ReservedNames` canonical-62 union (kept in
+lockstep with `snapdragon-gateway` and `snapdragon-admin-bff-api`).
+
 ### Domain-scoping (issuer-keyed) — ✅ shipped
 
 The platform's per-brand multi-tenancy keys a token's brand off its
@@ -278,6 +302,87 @@ and none should be read as a current capability.
   machinery, MFA enforcement (e.g. an `mfa_satisfied` / `acr` check
   guarding the `ROLE_ADMIN` registration endpoint) would land here. No
   such check exists yet — the endpoint authorizes on `ROLE_ADMIN` alone.
+
+## Current State
+
+*(as of 2026-06-20)*
+
+**Shipped & active on `main`:**
+
+- The two cross-stack reconcilers (`GameMasterAdminSyncAction`,
+  `GitHubOrgAdminReconcileAction`) and the single request endpoint
+  (`/api/registration/github-org-admin/evaluate`), all defended by the
+  OAuth2-resource-server + mTLS layers above.
+- GitHub-org-admin auto-grant is **gated off by default**
+  (`app.actions.gh-org-admin.enabled=false` → evaluate `404`, reconciler
+  no-op).
+- Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
+  `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
+  `iss`), reserved-username gate (canonical 62 labels, in lockstep with
+  `snapdragon-gateway` + `snapdragon-admin-bff-api`), the config-gated
+  federation confusable gate, SpringDoc/Swagger surface, and the GitLab
+  three-stage CI pipeline (test → build:image → pentest).
+
+**Where this repo sits vs the platform auth model (2026 cycle):** the
+platform SSO flow now runs `login-ui` → `user-bff` (server-side code
+exchange + JWT custody) with the browser holding only an opaque `bff_`
+session, and the gateway swapping `bff_` → the internal custody JWT
+before its JWT validation + `gateway_route_access` role gate. Login /
+session / account logic is being **relocated from `admin-bff` to
+`user-bff`**, and the shared account/session/MFA/Casdoor-admin infra is
+extracted into **`snapdragon-auth-core`** (consumed by user-bff +
+admin-bff only). **None of that changes `snapdragon-actions`:** it is a
+downstream resource server that only ever validates the resolved internal
+JWT the gateway forwards; it performs no code exchange, holds no session,
+and depends on neither `snapdragon-auth-core` nor the login path. The
+SCG-5 route-namespace fix
+(`spring.cloud.gateway.routes` → `…server.webflux.routes`) likewise does
+**not** apply — this service is not a Spring Cloud Gateway and carries no
+route config (its `application.yml` has no `spring.cloud.gateway.*`).
+
+**Known baseline drift (the one real follow-up):** this repo is **not
+yet migrated** onto the newly-unified ecosystem baseline. `pom.xml` still
+inherits `org.springframework.boot:spring-boot-starter-parent:3.5.5`
+(Spring Boot **3.5.x**, Java 21, Resilience4j `…-spring-boot3` 2.2.0) and
+does **not** consume `snapdragon-parent` (metapom 2.0.0) or
+`snapdragon-commons` (2.0.0) — whereas the rest of the Java estate (e.g.
+`federation-api`) has been migrated to **Spring Boot 4.0.2 /
+Spring Cloud 2025.1** on `snapdragon-parent` + `snapdragon-commons`. The
+`CasdoorAuthorities` / `Roles` / `DomainRegistry` classes here are still
+local copies rather than `systems.snapdragon.commons.*` imports.
+
+## Roadmap
+
+Platform-wide, designed-or-in-flight initiatives, called out where they
+specifically touch this effector. Nothing below is a current capability
+on `main`.
+
+- **Adopt the unified Boot 4 baseline (🔭 follow-up).** Migrate `pom.xml`
+  to `snapdragon-parent` (Boot 4.0.2 / Spring Cloud 2025.1) and fold the
+  local `CasdoorAuthorities` / `Roles` / `DomainRegistry` copies onto the
+  shared `snapdragon-commons` (`systems.snapdragon.commons.*`) security/
+  tenancy types — bringing this repo in line with the already-migrated
+  services and removing the byte-for-byte-copy maintenance burden.
+- **Casdoor MFA / step-up (🔭 planned).** WebAuthn + TOTP + recovery,
+  per-role defaults, `amr`/`acr` → `MFA_SATISFIED`; an `mfa_satisfied` /
+  `acr` step-up guard on the `ROLE_ADMIN` registration endpoint would
+  land here (today it authorizes on `ROLE_ADMIN` alone). See the planned
+  block above.
+- **SSO end-to-end live + e2e (in progress, platform-level).** Does not
+  change this service's code, but the cross-stack admin-sync and
+  per-role access matrix exercised here are part of the platform e2e
+  story.
+- **OWASP pen-test + nuclei in CI (✅ wired here, expanding).** The
+  `pentest` stage (SCA + authenticated ZAP baseline + nuclei) already
+  runs on this repo via the centralized `snapdragon-generator` templates;
+  template hardening continues platform-wide.
+
+Other in-flight platform initiatives — encrypted versioned backups
+(Velero + kopia/restic), egress VPN drop-in, per-node attached storage,
+desktop app governance, workload console, device-license registry,
+multi-tenancy superadmin (per-domain CA + per-brand gateway/BFF/UI), the
+games app-store, and A/V via coturn/TURN — are owned by other repos and
+do not change this effector's code.
 
 ## Metrics
 
