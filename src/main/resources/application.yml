@@ -77,17 +77,23 @@ app:
     # scheduled probe observes the newest Casdoor users (get-sorted-users by
     # created_time, within the lookback window), diffs them against a process-local
     # seen-set, and for each genuinely-new user whose signupApplication maps to a
-    # configured provider calls the EXISTING admin-bff ROLE_SERVICE endpoint
+    # configured provider calls the EXISTING admin-bff endpoint
     # POST /bff/internal/oidc/first-login to apply that user's OIDC-provider
     # default roles. NO-OP-UNTIL-CONFIGURED: even enabled, if no default-role map
     # is configured for a provider+domain the admin-bff endpoint returns
     # assignedRoles:[] and writes nothing; and an empty provider-map here means no
-    # user is ever mapped. The ROLE_SERVICE bearer is minted via the
-    # systems-Casdoor client-credentials grant (reuses app.casdoor.systems.*).
+    # user is ever mapped. AUTH: /bff/internal is gated by in-cluster mTLS +
+    # X-Internal-Token (NOT a ROLE_SERVICE JWT) — so this caller presents the shared
+    # internal-token below and (when server.ssl.enabled) its WebClient carries this
+    # service's mTLS client identity (the same keystore/truststore the server side mounts).
     oidc-default-roles:
       enabled:            ${APP_OIDC_DEFAULT_ROLES_ENABLED:false}
       # In-cluster DNS of snapdragon-admin-bff-api. Only consulted when enabled.
       admin-bff-base-url: ${APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL:http://snapdragon-admin-bff-api.snapdragon-backend.svc.cluster.local:8080}
+      # The shared X-Internal-Token secret admin-bff's InternalTokenWebFilter checks.
+      # MUST match admin-bff's app.internal.token. Injected from a k8s/ESO secret at
+      # deploy (never in git); blank in local/dev/CI where the loop is off anyway.
+      internal-token:     ${APP_OIDC_DEFAULT_ROLES_INTERNAL_TOKEN:}
       # 5-minute tick — role assignment lands on the next probe after signup,
       # matching the platform's existing next-tick propagation model.
       interval-ms:        ${APP_OIDC_DEFAULT_ROLES_INTERVAL_MS:300000}

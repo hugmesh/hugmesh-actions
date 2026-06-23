@@ -10,23 +10,24 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 /**
- * Reactive ROLE_SERVICE client of snapdragon-admin-bff-api's
- * {@code POST /bff/internal/oidc/first-login} endpoint — the EXISTING
- * (already-built) path that reads a domain+provider's default-role map
- * and applies each role to the Casdoor user. This client is the missing
- * <em>caller</em> of that endpoint: the OIDC default-role registration
- * probe invokes {@link #applyDefaultRoles} once per genuinely-new user.
+ * Reactive client of snapdragon-admin-bff-api's
+ * {@code POST /bff/internal/oidc/first-login} endpoint — the path that reads a
+ * domain+provider's default-role map and applies each role to the Casdoor user.
+ * This client is the <em>caller</em> of that endpoint: the OIDC default-role
+ * registration probe invokes {@link #applyDefaultRoles} once per genuinely-new user.
  *
- * <p><b>Auth.</b> The endpoint is INTERNAL / {@code @PreAuthorize("hasRole('SERVICE')")}
- * on the admin-bff side. This client therefore presents a Casdoor SERVICE
- * bearer — minted via the OAuth2 client-credentials grant (see
- * {@link OidcRoleHookClientConfig}) and forwarded on every call — NOT an
- * end-user token. The token supplier caches + re-mints, so this client
- * just asks for "a current bearer" per call (same shape as
- * {@code FederationUsernameClient}).
+ * <p><b>Auth — the internal surface, NOT a user/service bearer.</b> The endpoint
+ * lives under admin-bff's {@code /bff/internal/**}, which is {@code permitAll()} at
+ * the Spring layer and gated by (1) in-cluster mTLS ({@code server.ssl.client-auth=need}
+ * — only a caller whose cert chains to the cluster CA completes the handshake) and
+ * (2) a constant-time {@code X-Internal-Token} header check (InternalTokenWebFilter).
+ * So this client presents the shared {@code X-Internal-Token} on every call, and its
+ * {@link WebClient} carries the cluster mTLS client identity (the keystore.p12 / cluster-CA
+ * truststore.p12 wired in {@link OidcRoleHookClientConfig} when {@code server.ssl.enabled}).
+ * It does NOT send a Casdoor bearer — {@code /bff/internal} is not a {@code ROLE_SERVICE}
+ * JWT surface.
  *
  * <p><b>Request.</b> JSON {@code {domain, provider, casdoorUsername}}
  * matching the admin-bff {@code FirstLoginRequest} record (all three
@@ -47,19 +48,22 @@ public class OidcRoleHookClient {
     /** Bound the call so a slow admin-bff never stalls a probe tick. */
     private static final Duration CALL_TIMEOUT = Duration.ofSeconds(5);
 
+    /** The internal-surface header admin-bff's InternalTokenWebFilter checks (its default). */
+    static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
+
     private static final FirstLoginResponse NO_OP = new FirstLoginResponse(List.of());
 
     private final WebClient http;
-    private final Supplier<Mono<String>> serviceToken;
+    private final String internalToken;
 
     /**
-     * @param http         WebClient pre-pointed at admin-bff's base URL
-     *                     (and carrying the cluster-CA mTLS connector when enabled).
-     * @param serviceToken supplies a current Casdoor service bearer (cached / re-minted).
+     * @param http          WebClient pre-pointed at admin-bff's base URL and carrying the
+     *                      cluster-CA mTLS client connector when {@code server.ssl.enabled}.
+     * @param internalToken the shared {@code X-Internal-Token} secret presented on every call.
      */
-    public OidcRoleHookClient(WebClient http, Supplier<Mono<String>> serviceToken) {
+    public OidcRoleHookClient(WebClient http, String internalToken) {
         this.http = http;
-        this.serviceToken = serviceToken;
+        this.internalToken = internalToken;
     }
 
     /**
@@ -75,14 +79,13 @@ public class OidcRoleHookClient {
                 "domain", domain,
                 "provider", provider,
                 "casdoorUsername", username);
-        return serviceToken.get()
-                .flatMap(token -> http.post()
-                        .uri("/bff/internal/oidc/first-login")
-                        .headers(h -> h.setBearerAuth(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(body)
-                        .retrieve()
-                        .bodyToMono(FirstLoginResponse.class))
+        return http.post()
+                .uri("/bff/internal/oidc/first-login")
+                .header(INTERNAL_TOKEN_HEADER, internalToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(FirstLoginResponse.class)
                 .timeout(CALL_TIMEOUT)
                 .defaultIfEmpty(NO_OP)
                 .onErrorResume(e -> {

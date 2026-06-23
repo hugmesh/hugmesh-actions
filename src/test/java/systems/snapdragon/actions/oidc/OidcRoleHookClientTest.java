@@ -16,13 +16,12 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Drives the REAL {@link OidcRoleHookClient} against a stubbed
- * {@link ExchangeFunction}: it forwards the service bearer + the correct JSON
+ * {@link ExchangeFunction}: it forwards the {@code X-Internal-Token} + the correct JSON
  * body to {@code POST /bff/internal/oidc/first-login}, parses
  * {@link FirstLoginResponse}, and — critically — FAILS OPEN (resolves to an
  * empty no-op response, never throws, never fabricates roles) on any 5xx /
@@ -30,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class OidcRoleHookClientTest {
 
-    private static final Supplier<Mono<String>> TOKEN = () -> Mono.just("service-jwt");
+    private static final String INTERNAL_TOKEN = "internal-secret";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static OidcRoleHookClient clientReturning(ClientResponse response) {
@@ -39,7 +38,7 @@ class OidcRoleHookClientTest {
                 .baseUrl("http://admin-bff")
                 .exchangeFunction(exchange)
                 .build();
-        return new OidcRoleHookClient(web, TOKEN);
+        return new OidcRoleHookClient(web, INTERNAL_TOKEN);
     }
 
     private static ClientResponse json(HttpStatus status, String body) {
@@ -50,10 +49,12 @@ class OidcRoleHookClientTest {
     }
 
     @Test
-    void sendsBearer_andHitsFirstLoginUri_parsesResponse() {
+    void sendsInternalToken_andHitsFirstLoginUri_parsesResponse() {
+        AtomicReference<String> token = new AtomicReference<>();
         AtomicReference<String> auth = new AtomicReference<>();
         AtomicReference<String> uri = new AtomicReference<>();
         ExchangeFunction exchange = request -> {
+            token.set(request.headers().getFirst("X-Internal-Token"));
             auth.set(request.headers().getFirst("Authorization"));
             uri.set(request.url().toString());
             return Mono.just(json(HttpStatus.OK, "{\"assignedRoles\":[\"user\",\"member\"]}"));
@@ -62,14 +63,15 @@ class OidcRoleHookClientTest {
                 .baseUrl("http://admin-bff")
                 .exchangeFunction(exchange)
                 .build();
-        OidcRoleHookClient client = new OidcRoleHookClient(web, TOKEN);
+        OidcRoleHookClient client = new OidcRoleHookClient(web, INTERNAL_TOKEN);
 
         StepVerifier.create(client.applyDefaultRoles("default", "google", "alice"))
                 .assertNext(resp -> assertThat(resp.assignedRoles())
                         .containsExactly("user", "member"))
                 .verifyComplete();
 
-        assertThat(auth.get()).isEqualTo("Bearer service-jwt");
+        assertThat(token.get()).isEqualTo("internal-secret");
+        assertThat(auth.get()).as("internal surface uses X-Internal-Token, NOT a bearer").isNull();
         assertThat(uri.get()).isEqualTo("http://admin-bff/bff/internal/oidc/first-login");
     }
 
@@ -97,7 +99,7 @@ class OidcRoleHookClientTest {
                 .baseUrl("http://admin-bff")
                 .exchangeFunction(exchange)
                 .build();
-        OidcRoleHookClient client = new OidcRoleHookClient(web, TOKEN);
+        OidcRoleHookClient client = new OidcRoleHookClient(web, INTERNAL_TOKEN);
 
         StepVerifier.create(client.applyDefaultRoles("default", "google", "alice"))
                 .expectNextCount(1)
@@ -135,7 +137,7 @@ class OidcRoleHookClientTest {
                 .baseUrl("http://admin-bff")
                 .exchangeFunction(boom)
                 .build();
-        OidcRoleHookClient client = new OidcRoleHookClient(web, TOKEN);
+        OidcRoleHookClient client = new OidcRoleHookClient(web, INTERNAL_TOKEN);
 
         StepVerifier.create(client.applyDefaultRoles("default", "google", "dave"))
                 .assertNext(resp -> assertThat(resp.assignedRoles()).isEmpty())
