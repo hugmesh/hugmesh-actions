@@ -118,35 +118,66 @@ public class GitHubOrgAdminGrantAction {
         // only visible through the user's own token.
         tokenCache.put(snapdragonUsername, githubBearer);
         return github.snapdragonAdminOrgs(githubBearer, snapdragonOrgs)
-            .flatMap(orgs -> {
-                if (orgs.isEmpty()) {
-                    denied.increment();
-                    log.info("[gh-org-admin] denied: user={} reachable-orgs=[]", snapdragonUsername);
-                    return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
-                            "GitHub admin authority on a Snapdragon org is required"));
-                }
-                String member = systemsCasdoor.organization() + "/" + snapdragonUsername;
-                return systemsCasdoor.getRoleMembers(systemsAdminRole)
-                    .flatMap(current -> {
-                        if (current.contains(member)) {
-                            log.debug("[gh-org-admin] already-admin: user={}", snapdragonUsername);
-                            return Mono.just(member);
-                        }
-                        java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
-                        next.add(member);
-                        return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
-                            .doOnNext(ok -> {
-                                if (Boolean.TRUE.equals(ok)) granted.increment();
-                            })
-                            .thenReturn(member);
-                    });
-            })
-            .doOnError(e -> {
-                if (!(e instanceof ResponseStatusException)) {
-                    errors.increment();
-                    log.warn("[gh-org-admin] evaluation failed: {}", e.getMessage());
-                }
-            });
+            // Decide grant vs deny from the user's reachable Snapdragon orgs.
+            .flatMap(orgs -> grantIfReachable(orgs, snapdragonUsername))
+            // Count only genuine evaluation failures — a deny (403) is an
+            // expected outcome, not an error.
+            .doOnError(this::countUnexpectedError);
+    }
+
+    /**
+     * Grant branch of {@link #evaluateAndGrant}: deny with 403 when the
+     * user has no reachable Snapdragon org, otherwise add them to the
+     * systems-admin role (idempotent) and resolve their member id.
+     */
+    private Mono<String> grantIfReachable(Set<String> reachableOrgs, String snapdragonUsername) {
+        if (reachableOrgs.isEmpty()) {
+            return denyNoReach(snapdragonUsername);
+        }
+        String member = memberIdFor(snapdragonUsername);
+        return systemsCasdoor.getRoleMembers(systemsAdminRole)
+            // Read-modify-write the role's member list: add this member unless
+            // they are already present.
+            .flatMap(current -> addMemberIfAbsent(current, member, snapdragonUsername));
+    }
+
+    /** Reject a sign-up with 403 and bump the denied counter — the user
+     *  holds no admin reach on any configured Snapdragon org. */
+    private Mono<String> denyNoReach(String snapdragonUsername) {
+        denied.increment();
+        log.info("[gh-org-admin] denied: user={} reachable-orgs=[]", snapdragonUsername);
+        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "GitHub admin authority on a Snapdragon org is required"));
+    }
+
+    /** Add {@code member} to the current systems-admin list and persist,
+     *  or short-circuit (no write) when they are already a member.
+     *  Resolves the member id in both cases. */
+    private Mono<String> addMemberIfAbsent(List<String> current, String member, String snapdragonUsername) {
+        if (current.contains(member)) {
+            log.debug("[gh-org-admin] already-admin: user={}", snapdragonUsername);
+            return Mono.just(member);
+        }
+        java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
+        next.add(member);
+        return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
+            // Bump the granted counter only on a confirmed Casdoor write.
+            .doOnNext(this::countIfGranted)
+            .thenReturn(member);
+    }
+
+    /** Increment the granted counter when Casdoor confirmed the write. */
+    private void countIfGranted(Boolean ok) {
+        if (Boolean.TRUE.equals(ok)) granted.increment();
+    }
+
+    /** Count a failed evaluation — but not an expected deny
+     *  ({@link ResponseStatusException}), which is a normal outcome. */
+    private void countUnexpectedError(Throwable e) {
+        if (!(e instanceof ResponseStatusException)) {
+            errors.increment();
+            log.warn("[gh-org-admin] evaluation failed: {}", e.getMessage());
+        }
     }
 
     /**
@@ -167,26 +198,46 @@ public class GitHubOrgAdminGrantAction {
     @CircuitBreaker(name = "github")
     public Mono<Boolean> revokeIfNoLongerEligible(String githubBearer, String snapdragonUsername) {
         return isStillEligible(githubBearer)
-            .flatMap(eligible -> {
-                if (Boolean.TRUE.equals(eligible)) return Mono.just(false);
-                String member = systemsCasdoor.organization() + "/" + snapdragonUsername;
-                return systemsCasdoor.getRoleMembers(systemsAdminRole)
-                    .flatMap(current -> {
-                        if (!current.contains(member)) return Mono.just(false);
-                        java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
-                        next.remove(member);
-                        return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
-                            .doOnNext(ok -> {
-                                if (Boolean.TRUE.equals(ok)) {
-                                    revoked.increment();
-                                    // No longer an admin → no reason to keep
-                                    // replaying their GitHub token.
-                                    tokenCache.evict(snapdragonUsername);
-                                }
-                            })
-                            .thenReturn(true);
-                    });
-            });
+            // Still reachable → nothing to do; otherwise prune them from the role.
+            .flatMap(eligible -> Boolean.TRUE.equals(eligible)
+                    ? Mono.just(false)
+                    : revokeMember(snapdragonUsername));
+    }
+
+    /**
+     * Revoke branch of {@link #revokeIfNoLongerEligible}: read the
+     * current systems-admin list and remove this user when present.
+     */
+    private Mono<Boolean> revokeMember(String snapdragonUsername) {
+        String member = memberIdFor(snapdragonUsername);
+        return systemsCasdoor.getRoleMembers(systemsAdminRole)
+            // Read-modify-write: drop this member from the list when present.
+            .flatMap(current -> removeMemberIfPresent(current, member, snapdragonUsername));
+    }
+
+    /** Remove {@code member} from the current systems-admin list and
+     *  persist, or short-circuit (no write, {@code false}) when they are
+     *  not a member. On a confirmed write, count the revoke and evict the
+     *  cached token. */
+    private Mono<Boolean> removeMemberIfPresent(List<String> current, String member, String snapdragonUsername) {
+        if (!current.contains(member)) return Mono.just(false);
+        java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
+        next.remove(member);
+        return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
+            // On a confirmed Casdoor write, count the revoke and stop
+            // replaying this user's GitHub token.
+            .doOnNext(ok -> countAndEvictIfRevoked(ok, snapdragonUsername))
+            .thenReturn(true);
+    }
+
+    /** On a confirmed revoke write, bump the revoked counter and evict
+     *  the user's cached GitHub token — they are no longer an admin, so
+     *  there is no reason to keep replaying it. */
+    private void countAndEvictIfRevoked(Boolean ok, String snapdragonUsername) {
+        if (Boolean.TRUE.equals(ok)) {
+            revoked.increment();
+            tokenCache.evict(snapdragonUsername);
+        }
     }
 
     /**
@@ -229,30 +280,44 @@ public class GitHubOrgAdminGrantAction {
         }
         Set<String> membersToRevoke = new HashSet<>();
         for (String username : usernamesToRevoke) {
-            membersToRevoke.add(systemsCasdoor.organization() + "/" + username);
+            membersToRevoke.add(memberIdFor(username));
         }
         return systemsCasdoor.getRoleMembers(systemsAdminRole)
-            .flatMap(current -> {
-                java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
-                boolean changed = next.removeAll(membersToRevoke);
-                if (!changed) {
-                    // Nobody we were asked to revoke is actually still a
-                    // member — no-op tick, write nothing.
-                    return Mono.just(false);
-                }
-                return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
-                    .doOnNext(ok -> {
-                        if (Boolean.TRUE.equals(ok)) {
-                            for (String username : usernamesToRevoke) {
-                                String member = systemsCasdoor.organization() + "/" + username;
-                                if (current.contains(member)) {
-                                    revoked.increment();
-                                    tokenCache.evict(username);
-                                }
-                            }
-                        }
-                    });
-            });
+            // Single serialized read-modify-write for the whole tick: drop
+            // every member we were asked to revoke, then persist once.
+            .flatMap(current -> pruneMembers(current, membersToRevoke, usernamesToRevoke));
+    }
+
+    /** Remove {@code membersToRevoke} from {@code current} and persist the
+     *  result. Prune-only: when nothing actually changed, writes nothing
+     *  and returns {@code false}. */
+    private Mono<Boolean> pruneMembers(List<String> current, Set<String> membersToRevoke,
+                                       Set<String> usernamesToRevoke) {
+        java.util.ArrayList<String> next = new java.util.ArrayList<>(current);
+        boolean changed = next.removeAll(membersToRevoke);
+        if (!changed) {
+            // Nobody we were asked to revoke is actually still a
+            // member — no-op tick, write nothing.
+            return Mono.just(false);
+        }
+        return systemsCasdoor.setRoleMembers(systemsAdminRole, next)
+            // On a confirmed write, count + evict tokens for the members
+            // that were actually present before the prune.
+            .doOnNext(ok -> evictRevokedTokens(ok, current, usernamesToRevoke));
+    }
+
+    /** On a confirmed batch-revoke write, bump the revoked counter and
+     *  evict the cached token for each requested user that was actually a
+     *  member before the prune. */
+    private void evictRevokedTokens(Boolean ok, List<String> previousMembers, Set<String> usernamesToRevoke) {
+        if (!Boolean.TRUE.equals(ok)) return;
+        for (String username : usernamesToRevoke) {
+            String member = memberIdFor(username);
+            if (previousMembers.contains(member)) {
+                revoked.increment();
+                tokenCache.evict(username);
+            }
+        }
     }
 
     /** Casdoor member identifier ({@code <org>/<username>}) for a

@@ -142,7 +142,6 @@ public class CasdoorClient {
      * <p>Endpoint: {@code GET /api/get-sorted-users?owner=<org>
      * &sorter=created_time&order=descend&limit=<limit>}.
      */
-    @SuppressWarnings("unchecked")
     public Mono<List<NewUser>> listNewUsers(int limit) {
         int effectiveLimit = limit > 0 ? limit : 1;
         return http.get()
@@ -154,27 +153,47 @@ public class CasdoorClient {
                         .build())
                 .retrieve()
                 .bodyToMono(Map.class)
-                .map(body -> {
-                    Object data = body.get("data");
-                    if (!(data instanceof List<?> rows)) {
-                        return List.<NewUser>of();
-                    }
-                    java.util.List<NewUser> out = new java.util.ArrayList<>();
-                    for (Object row : rows) {
-                        if (row instanceof Map<?, ?> m) {
-                            Object name = m.get("name");
-                            if (!(name instanceof String n) || n.isBlank()) {
-                                continue;
-                            }
-                            Object signup = m.get("signupApplication");
-                            Object created = m.get("createdTime");
-                            out.add(new NewUser(
-                                    n,
-                                    signup instanceof String s ? s : null,
-                                    created instanceof String c ? c : null));
-                        }
-                    }
-                    return (List<NewUser>) out;
-                });
+                // Map the response's `data` array to NewUser rows, tolerating a
+                // missing / non-list field (empty list).
+                .map(body -> toNewUsers(body.get("data")));
+    }
+
+    /** Convert the {@code data} field of a get-sorted-users response into
+     *  {@link NewUser} rows. Tolerant of a missing / non-list value
+     *  (returns an empty list); rows missing a usable {@code name} are
+     *  dropped. */
+    static List<NewUser> toNewUsers(Object data) {
+        if (!(data instanceof List<?> rows)) {
+            return List.of();
+        }
+        java.util.List<NewUser> out = new java.util.ArrayList<>();
+        for (Object row : rows) {
+            NewUser user = toNewUser(row);
+            // Skip nameless rows — a user with no name is meaningless to the
+            // first-login call the probe makes.
+            if (user != null) {
+                out.add(user);
+            }
+        }
+        return out;
+    }
+
+    /** Map a single get-sorted-users row to a {@link NewUser}, or
+     *  {@code null} when the row is not a map or carries no usable
+     *  {@code name}. */
+    static NewUser toNewUser(Object row) {
+        if (!(row instanceof Map<?, ?> m)) {
+            return null;
+        }
+        Object name = m.get("name");
+        if (!(name instanceof String n) || n.isBlank()) {
+            return null;
+        }
+        Object signup = m.get("signupApplication");
+        Object created = m.get("createdTime");
+        return new NewUser(
+                n,
+                signup instanceof String s ? s : null,
+                created instanceof String c ? c : null);
     }
 }

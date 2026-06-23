@@ -108,33 +108,48 @@ public class GitHubClient {
         return reposPage(bearer, 1);
     }
 
-    @SuppressWarnings("unchecked")
+    private static final int REPOS_PAGE_SIZE = 100;
+
     private Flux<RepoPermission> reposPage(String bearer, int page) {
-        final int pageSize = 100;
         return http.get()
                 .uri(uri -> uri.path("/user/repos")
-                        .queryParam("per_page", pageSize)
+                        .queryParam("per_page", REPOS_PAGE_SIZE)
                         .queryParam("page", page)
                         .queryParam("affiliation", "owner,collaborator,organization_member")
                         .build())
                 .headers(h -> h.setBearerAuth(bearer))
                 .retrieve()
                 .bodyToMono(List.class)
-                .flatMapMany(rows -> {
-                    if (rows == null || rows.isEmpty()) return Flux.empty();
-                    Flux<RepoPermission> thisPage = Flux.fromIterable((List<Map<String, Object>>) rows)
-                            .map(row -> {
-                                String fullName = (String) row.get("full_name");
-                                Object permsObj = row.get("permissions");
-                                boolean admin = false;
-                                if (permsObj instanceof Map<?, ?> perms) {
-                                    admin = Boolean.TRUE.equals(perms.get("admin"));
-                                }
-                                return new RepoPermission(fullName, admin);
-                            });
-                    if (rows.size() < pageSize) return thisPage;
-                    return thisPage.concatWith(reposPage(bearer, page + 1));
-                });
+                // Emit this page's rows, then recurse into the next page until a
+                // short/empty page signals the end of the walk.
+                .flatMapMany(rows -> pageOrContinue(bearer, page, rows));
+    }
+
+    /** Map one page of {@code /user/repos} rows to {@link RepoPermission}s,
+     *  then either stop (short/empty page = last page) or chain the next
+     *  page. */
+    @SuppressWarnings("unchecked")
+    private Flux<RepoPermission> pageOrContinue(String bearer, int page, List<?> rows) {
+        if (rows == null || rows.isEmpty()) return Flux.empty();
+        Flux<RepoPermission> thisPage = Flux.fromIterable((List<Map<String, Object>>) rows)
+                .map(GitHubClient::toRepoPermission);
+        // A page shorter than the requested size is GitHub's signal there
+        // are no more pages — stop here; otherwise fetch the next page.
+        if (rows.size() < REPOS_PAGE_SIZE) return thisPage;
+        return thisPage.concatWith(reposPage(bearer, page + 1));
+    }
+
+    /** Unpack a single {@code /user/repos} row into a {@link RepoPermission}:
+     *  its {@code full_name} and whether the nested {@code permissions.admin}
+     *  flag is set. */
+    static RepoPermission toRepoPermission(Map<String, Object> row) {
+        String fullName = (String) row.get("full_name");
+        Object permsObj = row.get("permissions");
+        boolean admin = false;
+        if (permsObj instanceof Map<?, ?> perms) {
+            admin = Boolean.TRUE.equals(perms.get("admin"));
+        }
+        return new RepoPermission(fullName, admin);
     }
 
     /** Returns the set of Snapdragon-affiliated orgs the user has
@@ -150,10 +165,16 @@ public class GitHubClient {
                 .map(r -> r.fullName().split("/", 2)[0])
                 .filter(snapdragonOrgNames::contains)
                 .collect(java.util.stream.Collectors.toSet());
-        return viaOrgRole.zipWith(viaRepoAdmin, (a, b) -> {
-            java.util.HashSet<String> union = new java.util.HashSet<>(a);
-            union.addAll(b);
-            return java.util.Set.copyOf(union);
-        });
+        // Merge the two admin-reach paths — org-role admin and repo-admin —
+        // into one set of orgs the user has any admin foothold in.
+        return viaOrgRole.zipWith(viaRepoAdmin, GitHubClient::union);
+    }
+
+    /** Union of two org-name sets — the combined admin reach from the
+     *  org-role path and the repo-admin path. */
+    static Set<String> union(Set<String> a, Set<String> b) {
+        java.util.HashSet<String> union = new java.util.HashSet<>(a);
+        union.addAll(b);
+        return java.util.Set.copyOf(union);
     }
 }
