@@ -61,7 +61,33 @@ abstract class SecuritySliceSupport {
 
         return WebTestClient.bindToController(controllers)
                 .webFilter(securityFilter)
+                .configureClient()
+                .responseTimeout(sliceResponseTimeout())
                 .build();
+    }
+
+    /**
+     * The slice's {@link WebTestClient} blocking-read budget. Generous by default (30s)
+     * so a cold first-touch OIDC discovery on a constrained CI runner never trips the
+     * framework's 5s default; overridable via {@code actions.slice.responseTimeoutSeconds}.
+     *
+     * <p>FLAKE FIX: the multi-issuer path's FIRST touch of a given brand lazily builds
+     * that brand's decoder via {@code ReactiveJwtDecoders.fromIssuerLocation(iss)} — a
+     * SYNCHRONOUS OIDC discovery (two sequential HTTP round-trips to the in-process
+     * {@link systems.snapdragon.actions.testsupport.TestIssuer}, whose JDK HttpServer runs
+     * on a single synchronous executor). On a 1-2 core CI runner (cold JVM + cold Netty
+     * WebClient bootstrap + JUnit's non-deterministic method ordering deciding which test
+     * eats the cold start) it can exceed {@code WebTestClient}'s DEFAULT 5s blocking-read
+     * budget, surfacing as a "~5s reactive blocking-read timeout" flake. Pinning an
+     * explicit, generous budget makes the slice deterministic WITHOUT touching any
+     * assertion: a tampered/unknown/cross-brand token still runs the REAL decoder and
+     * still fail-closes 401; we only stop a slow first-touch from being misread as a
+     * failure. (Mirrors the fix already in snapdragon-federation-api's SecuritySliceSupport.)
+     */
+    private static java.time.Duration sliceResponseTimeout() {
+        long secs = Long.getLong("actions.slice.responseTimeoutSeconds", 30L);
+        if (secs < 5L) secs = 5L; // never go below the framework default
+        return java.time.Duration.ofSeconds(secs);
     }
 
     /** An {@link ObjectProvider} that yields the given value from
