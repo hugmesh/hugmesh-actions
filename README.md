@@ -36,18 +36,22 @@ flowchart LR
         GM["GameMasterAdminSyncAction<br/>@Scheduled 60s"]
         REV["GitHubOrgAdminReconcileAction<br/>@Scheduled 6h"]
         GHA["GitHubOrgAdminGrantAction"]
+        OIDC["OidcDefaultRoleProbeAction<br/>@Scheduled (default-off)"]
         RC --> GHA
     end
 
     SC["snapdragon.systems Casdoor<br/>(canonical JWT issuer)"]
     GC["games Casdoor<br/>(optional service, opt-in)"]:::optional
     GH["GitHub API"]
+    BFF["snapdragon-admin-bff-api<br/>(ROLE_SERVICE first-login hook)"]
 
     GM -->|"read game-master / write admin"| SC
     GM -->|"write games admin<br/>(when games enabled)"| GC
     GHA -.->|"grant/deny systems admin<br/>(disabled by default)"| SC
     GHA -.->|"check org-admin reach<br/>(disabled by default)"| GH
     REV -.->|"prune-only revoke<br/>(no-op when disabled)"| SC
+    OIDC -.->|"read new users<br/>(disabled by default)"| SC
+    OIDC -.->|"apply OIDC default roles<br/>(disabled by default)"| BFF
 
     MFA["MFA / acr step-up on ROLE_ADMIN"]:::planned
     MFA -.-> RC
@@ -57,9 +61,12 @@ flowchart LR
 ```
 
 Solid edges are **✅ shipped** and active by default; the dotted
-GitHub-org-admin edges are shipped but **gated off by default**
-(`app.actions.gh-org-admin.enabled=false`); the greyed `MFA` node is
-**🔭 planned** (no code yet — see [Roadmap](#roadmap--planned-not-shipped)).
+GitHub-org-admin and OIDC-default-role edges are shipped but **gated off
+by default** (`app.actions.gh-org-admin.enabled=false`,
+`app.actions.oidc-default-roles.enabled=false`); the greyed `MFA` node is
+**🔭 planned** for the endpoint-enforcement guard — see
+[Roadmap](#roadmap--planned-not-shipped) (note: the MFA *converter*
+support already ships dark on `main`, see Current State).
 
 ## Actions
 
@@ -155,6 +162,36 @@ with zero writes). The token cache is process-local and best-effort:
 losing it (a pod restart) only delays an auto-revoke until the user
 signs in again; the grants themselves live in Casdoor.
 
+### `OidcDefaultRoleProbeAction` — OIDC default roles for new sign-ups
+
+> **Disabled by default (✅ shipped).** Gated behind
+> `app.actions.oidc-default-roles.enabled` (env
+> `APP_OIDC_DEFAULT_ROLES_ENABLED`), **default `false`** — exactly like the
+> GitHub-org-admin grant. While disabled the scheduled tick returns
+> immediately (no Casdoor read, no admin-bff call), and the
+> `@ConditionalOnProperty` role-hook client bean does not even exist, so
+> the action short-circuits a second way. Everything below describes the
+> **enabled** behaviour.
+
+Supplies the missing **caller** for the registration-flow default-role
+hook in `snapdragon-admin-bff-api`: admin-bff already reads the
+per-`(domain, provider)` default-role map and applies it via Casdoor, but
+Casdoor exposes no first-login webhook in this org, so this scheduled
+probe observes the newest Casdoor users and calls the existing
+ROLE_SERVICE endpoint `POST /bff/internal/oidc/first-login` once per new
+signup. Scheduled every `app.actions.oidc-default-roles.interval-ms`
+(default **5 min**), it reads the `limit` newest users, keeps only those
+created within the `lookback` window whose `signupApplication` maps to a
+configured provider and that it hasn't already seen, and applies each
+user's provider defaults.
+
+Idempotent and stateless like the other reconcilers: a process-local,
+best-effort seen-set (mirroring `GitHubTokenCache`) prevents re-POSTing
+within a pod lifetime and is pruned to the lookback window each tick, the
+underlying `addUserToRole` is itself idempotent, and even fully enabled a
+provider with no default-role map configured results in zero Casdoor
+writes. Metrics: `actions.oidc_default_roles.{applied,skipped,errors}`.
+
 ## HTTP surface
 
 The only request endpoint is the registration org-admin gate; the rest
@@ -171,13 +208,13 @@ order:
 1. **Local reserved-username gate** (runs unconditionally) — rejects
    `422` any username that, normalised to the vanity-subdomain DNS-label
    form, collides with a dedicated gateway route/prefix. The reserved
-   list (`ReservedNames`, currently **62 labels**) is the canonical union
+   list (`ReservedNames`, currently **70 labels**) is the canonical union
    of the fe-/be-gateway route prefixes, reserved subdomains, the
    app routes of the optional (opt-in, default-off) games service, and
    defensive infra names — **kept
    byte-for-byte in lockstep** with `snapdragon-gateway`'s `CanonicalSeed`
    and `snapdragon-admin-bff-api`'s copy (all three must agree on the same
-   62). This is defence-in-depth; Casdoor's own forbidden-username policy
+   70). This is defence-in-depth; Casdoor's own forbidden-username policy
    is the source gate.
 2. **Federation confusable / availability gate** (defence-in-depth,
    **config-gated, default off**) — when
@@ -244,7 +281,7 @@ extraction (shared account/session/MFA/Casdoor-admin infra, consumed by
 user-bff + admin-bff only) therefore **do not touch this repo's code** —
 it consumes neither. The one auth machinery it *does* share is the
 stateless JWT→authority converter (`CasdoorAuthorities`, copied from
-`snapdragon-gateway`) and the `ReservedNames` canonical-62 union (kept in
+`snapdragon-gateway`) and the `ReservedNames` canonical-70 union (kept in
 lockstep with `snapdragon-gateway` and `snapdragon-admin-bff-api`).
 
 ### Domain-scoping (issuer-keyed) — ✅ shipped
@@ -291,17 +328,22 @@ domain-scoped query to filter, and none is invented.
 ### Roadmap — 🔭 planned (NOT shipped)
 
 These platform-wide initiatives would touch this service when adopted.
-They are **design-only today**; nothing below is in the code on `main`,
-and none should be read as a current capability.
+They are **design-only today** *except where noted as ships-dark*; the
+endpoint-enforcement and Boot-4 items below are not yet a current
+capability on `main`.
 
-- **Casdoor MFA / step-up (🔭 planned).** A platform-wide design (9-PR
-  plan) introduces WebAuthn + TOTP + recovery with `amr`/`acr` →
-  `MFA_SATISFIED` and step-up enforcement on sensitive operations. Because
-  this service is a Casdoor-JWT resource server and its
-  `CasdoorAuthorities` / `Roles` converter is the *shared* authority
-  machinery, MFA enforcement (e.g. an `mfa_satisfied` / `acr` check
-  guarding the `ROLE_ADMIN` registration endpoint) would land here. No
-  such check exists yet — the endpoint authorizes on `ROLE_ADMIN` alone.
+- **Casdoor MFA / step-up (🔭 endpoint guard planned; converter parity
+  ✅ ships dark).** A platform-wide design (9-PR plan) introduces
+  WebAuthn + TOTP + recovery with `amr`/`acr` → `MFA_SATISFIED` and
+  step-up enforcement on sensitive operations. The **converter half**
+  already ships dark on `main`: `CasdoorAuthorities` derives the
+  `MFA_SATISFIED` authority from the validated `mfa_satisfied_at` claim
+  behind `app.mfa.enabled` (default `false`), `MFA_SATISFIED` is in the
+  reserved-prefix injection defence, and `Roles` carries the markers
+  (`CasdoorAuthoritiesMfaTest`). What is **still planned** is the
+  *endpoint-enforcement guard* — an `mfa_satisfied` / `acr` step-up check
+  guarding the `ROLE_ADMIN` registration endpoint; no such check exists
+  yet, so the endpoint authorizes on `ROLE_ADMIN` alone.
 
 ## Current State
 
@@ -316,9 +358,21 @@ and none should be read as a current capability.
 - GitHub-org-admin auto-grant is **gated off by default**
   (`app.actions.gh-org-admin.enabled=false` → evaluate `404`, reconciler
   no-op).
+- `OidcDefaultRoleProbeAction` (the scheduled OIDC-default-role caller for
+  admin-bff's first-login hook) ships **dark / gated off by default**
+  (`app.actions.oidc-default-roles.enabled=false` → tick returns
+  immediately, role-hook client bean absent).
+- MFA **converter parity** ships **dark / gated off by default**:
+  `CasdoorAuthorities` derives the `MFA_SATISFIED` authority from the
+  validated `mfa_satisfied_at` claim behind `app.mfa.enabled` (default
+  `false` → marker never emitted), `MFA_SATISFIED` is in the converter's
+  reserved-prefix injection defence, and `Roles` defines the
+  `MFA_SATISFIED` / `mfa_satisfied_at` helpers (covered by
+  `CasdoorAuthoritiesMfaTest`). The endpoint-enforcement guard is still
+  🔭 planned (the `ROLE_ADMIN` endpoint authorizes on `ROLE_ADMIN` alone).
 - Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
   `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
-  `iss`), reserved-username gate (canonical 62 labels, in lockstep with
+  `iss`), reserved-username gate (canonical 70 labels, in lockstep with
   `snapdragon-gateway` + `snapdragon-admin-bff-api`), the config-gated
   federation confusable gate, SpringDoc/Swagger surface, and the GitLab
   three-stage CI pipeline (test → build:image → pentest).
@@ -363,11 +417,12 @@ on `main`.
   shared `snapdragon-commons` (`systems.snapdragon.commons.*`) security/
   tenancy types — bringing this repo in line with the already-migrated
   services and removing the byte-for-byte-copy maintenance burden.
-- **Casdoor MFA / step-up (🔭 planned).** WebAuthn + TOTP + recovery,
-  per-role defaults, `amr`/`acr` → `MFA_SATISFIED`; an `mfa_satisfied` /
-  `acr` step-up guard on the `ROLE_ADMIN` registration endpoint would
-  land here (today it authorizes on `ROLE_ADMIN` alone). See the planned
-  block above.
+- **Casdoor MFA / step-up (🔭 endpoint guard planned).** WebAuthn + TOTP +
+  recovery, per-role defaults, `amr`/`acr` → `MFA_SATISFIED`. The
+  `MFA_SATISFIED` converter parity already **ships dark** here (behind
+  `app.mfa.enabled`); what remains planned is the `mfa_satisfied` / `acr`
+  step-up guard on the `ROLE_ADMIN` registration endpoint (today it
+  authorizes on `ROLE_ADMIN` alone). See the planned block above.
 - **SSO end-to-end live + e2e (in progress, platform-level).** Does not
   change this service's code, but the cross-stack admin-sync and
   per-role access matrix exercised here are part of the platform e2e
@@ -402,6 +457,9 @@ Prometheus is exposed at `/actuator/prometheus` (gated to
 | `actions.gh_org_admin.reconciled` | counter | Admins re-evaluated against GitHub on a reconcile tick |
 | `actions.gh_org_admin.reconcile_skipped` | counter | Admins left untouched for lack of a fresh GitHub token |
 | `actions.gh_org_admin.reconcile_errors` | counter | Reconcile ticks / per-user checks that failed |
+| `actions.oidc_default_roles.applied` | counter | New users for whom OIDC-provider default roles were applied via admin-bff (default-off) |
+| `actions.oidc_default_roles.skipped` | counter | New users skipped (already seen / unmapped provider / outside lookback) |
+| `actions.oidc_default_roles.errors` | counter | OIDC default-role probe ticks / per-user applies that failed |
 
 ## Configuration
 
@@ -421,6 +479,9 @@ list of keys and defaults. Highlights:
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
 | GitHub token TTL | `app.actions.gh-org-admin.token-ttl` (`GH_ORG_ADMIN_TOKEN_TTL`) | `PT24H` |
 | Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |
+| OIDC default-role probe | `app.actions.oidc-default-roles.enabled` (`APP_OIDC_DEFAULT_ROLES_ENABLED`) | `false` (off → tick returns immediately, role-hook bean absent) |
+| OIDC probe interval | `app.actions.oidc-default-roles.interval-ms` | `300000` (5 min) |
+| MFA converter parity | `app.mfa.enabled` | `false` (off → `MFA_SATISFIED` marker never emitted) |
 | Federation confusable gate | `app.federation.username-check.enabled` (`APP_FEDERATION_USERNAME_CHECK_ENABLED`) | `false` |
 | GitHub API base | `app.github.base-url` (`GITHUB_API_BASE_URL`) | `https://api.github.com` |
 | mTLS | `server.ssl.*` (`SSL_ENABLED`, `SSL_CLIENT_AUTH`, …) | off / `none` |
