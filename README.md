@@ -1,6 +1,6 @@
 # snapdragon-actions
 
-Reactive Spring (WebFlux, Java 21, `@EnableScheduling`) service that runs
+Reactive Spring (WebFlux, Java 25, `@EnableScheduling`) service that runs
 the Snapdragon platform's **cross-stack role-reconciliation** jobs and
 hosts the **registration org-admin grant** endpoint. Stateless by
 design — every scheduled tick reads source-of-truth from the canonical
@@ -354,7 +354,7 @@ capability on `main`.
 
 ## Current State
 
-*(as of 2026-06-20)*
+*(as of 2026-06-24)*
 
 **Shipped & active on `main`:**
 
@@ -401,8 +401,8 @@ SCG-5 route-namespace fix
 **not** apply — this service is not a Spring Cloud Gateway and carries no
 route config (its `application.yml` has no `spring.cloud.gateway.*`).
 
-**Baseline:** this repo is on **Spring Boot 4.0.2** (Java 21) —
-`pom.xml` inherits `org.springframework.boot:spring-boot-starter-parent:4.0.2`
+**Baseline:** this repo is on **Spring Boot 4.0.7** (Java 25 LTS) —
+`pom.xml` inherits `org.springframework.boot:spring-boot-starter-parent:4.0.7`
 directly, with Resilience4j `…-spring-boot4` 2.4.0 (+ a direct `aspectjweaver`
 dependency so the `@CircuitBreaker` aspect actually registers — Boot 4 removed
 the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
@@ -411,7 +411,7 @@ the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
 
 **Remaining follow-up:** this service still inherits
 `spring-boot-starter-parent` **directly** rather than consuming
-`snapdragon-parent` (metapom 2.0.0) or `snapdragon-commons` (2.0.0) — whereas
+`snapdragon-parent` (metapom 2.7.0) or `snapdragon-commons` (2.7.0) — whereas
 the rest of the Java estate (e.g. `federation-api`) runs on
 `snapdragon-parent` + `snapdragon-commons`. The `CasdoorAuthorities` / `Roles`
 / `DomainRegistry` classes here are still local copies rather than
@@ -425,7 +425,7 @@ specifically touch this effector. Nothing below is a current capability
 on `main`.
 
 - **Adopt the unified Boot 4 baseline (🔭 follow-up).** Migrate `pom.xml`
-  to `snapdragon-parent` (Boot 4.0.2 / Spring Cloud 2025.1) and fold the
+  to `snapdragon-parent` (Boot 4.0.7 / Spring Cloud 2025.1.2) and fold the
   local `CasdoorAuthorities` / `Roles` / `DomainRegistry` copies onto the
   shared `snapdragon-commons` (`systems.snapdragon.commons.*`) security/
   tenancy types — bringing this repo in line with the already-migrated
