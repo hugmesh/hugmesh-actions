@@ -202,10 +202,21 @@ management:
 # SecurityConfig (permitAll under dev/test so gen:fetch can curl it
 # locally; ROLE_ADMIN in prod). Mirrors the snapdragon.games BFF.
 springdoc:
+  # Force JSON as the default produced media type. Without this, springdoc emits
+  # `*/*` for endpoints with no explicit `produces`, which ng-openapi-gen maps to a
+  # `Blob` response type — breaking JSON parsing in the generated typed clients.
+  # Mirrors the snapdragon-admin-bff-api / snapdragon-user-bff-api block.
+  default-produces-media-type: application/json
   api-docs:
     enabled: true
     # Canonical JSON spec path the docs pipeline + ng-openapi-gen poll.
     path: /v3/api-docs
+    # Emit OpenAPI 3.0.1 (not springdoc-3.x's new 3.1.0 default). The Boot-4 upgrade
+    # bumped springdoc 2.x -> 3.x, which silently switched the dumped spec to 3.1.0 —
+    # but the Angular UIs generate their typed clients with ng-openapi-gen 0.51.0,
+    # which CANNOT parse 3.1.0. Pinning back to 3.0 keeps the Boot-4 upgrade
+    # API-spec-neutral so the BFF<->UI ng-openapi-gen contract is unchanged.
+    version: openapi_3_0
   swagger-ui:
     enabled: true
     path: /swagger-ui.html

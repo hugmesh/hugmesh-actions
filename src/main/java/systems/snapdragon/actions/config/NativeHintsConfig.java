@@ -85,7 +85,7 @@ public class NativeHintsConfig {
             return new MemberCategory[] {
                     MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
                     MemberCategory.INVOKE_DECLARED_METHODS,
-                    MemberCategory.DECLARED_FIELDS,
+                    MemberCategory.ACCESS_DECLARED_FIELDS,
             };
         }
 

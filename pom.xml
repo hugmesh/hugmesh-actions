@@ -6,7 +6,12 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.5.5</version>
+		<!-- 4.0.2 brings this service onto the fleet's Boot-4 baseline (the fleet
+		     runs Spring Boot 4.0.2 via snapdragon-parent 2.0.0; this service tracks
+		     the same Boot version directly). Boot 4 = Spring Framework 7 + Spring
+		     Security 7 + the Jackson-3 WebFlux codec; the resilience4j + springdoc
+		     deps below are bumped to their Boot-4-compatible lines accordingly. -->
+		<version>4.0.2</version>
 		<relativePath/>
 	</parent>
 
@@ -61,28 +66,55 @@
 		     api-docs/SwaggerUI federated module, and the docs pipeline all
 		     consume. webflux-ui variant matches the reactive stack (the
 		     servlet variant would drag in spring-webmvc and break the
-		     non-blocking model). Version pinned to the SAME line the
-		     snapdragon.games BFF uses (2.7.0 → Spring Boot 3.5.x). -->
+		     non-blocking model). Version pinned to the SpringDoc 3.0.x line,
+		     which targets Spring Boot 4 / Spring Framework 7 (the 2.7.x line is
+		     Spring Boot 3.5.x). -->
 		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
-			<version>2.7.0</version>
+			<version>3.0.3</version>
+		</dependency>
+		<!-- AspectJ weaver — REQUIRED for resilience4j's @CircuitBreaker to take effect.
+		     The breaker is applied by a Spring AOP @Aspect (CircuitBreakerAspect), which
+		     resilience4j's auto-config only registers under its AspectJOnClasspathCondition;
+		     and Spring Boot's AopAutoConfiguration only enables AspectJ auto-proxy when
+		     AspectJ is on the classpath. resilience4j-spring-boot4 does NOT pull it
+		     transitively, and Boot 4 REMOVED the old spring-boot-starter-aop convenience
+		     starter (404 on Maven Central) — so aspectjweaver is declared directly here
+		     (version BOM-managed). Without it every @CircuitBreaker annotation (incl. the
+		     fail-closed/fail-open fallbacks on the Casdoor/federation/admin-bff/github call
+		     sites) is a SILENT no-op. Guarded by CircuitBreakerWiringTest. -->
+		<dependency>
+			<groupId>org.aspectj</groupId>
+			<artifactId>aspectjweaver</artifactId>
 		</dependency>
 		<!-- Resilience4j circuit breaker — wraps the per-Casdoor-call
-		     side-effect so a slow Casdoor doesn't pile up sync work. -->
+		     side-effect so a slow Casdoor doesn't pile up sync work.
+		     The -spring-boot4 starter (2.4.0) is the Boot-4-compatible line;
+		     -spring-boot3 (2.2.0) targets Spring Boot 3 auto-configuration. -->
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
-			<artifactId>resilience4j-spring-boot3</artifactId>
-			<version>2.2.0</version>
+			<artifactId>resilience4j-spring-boot4</artifactId>
+			<version>2.4.0</version>
 		</dependency>
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-reactor</artifactId>
-			<version>2.2.0</version>
+			<version>2.4.0</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- WebFlux test slice (@WebFluxTest + WebTestClient autoconfig). Under
+		     Boot 4 the per-technology test slices were split out of
+		     spring-boot-starter-test into their own starters, so the WebFlux slice
+		     is declared explicitly; @WebFluxTest also moved package to
+		     org.springframework.boot.webflux.test.autoconfigure. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -97,6 +129,18 @@
 		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Boot-4 security test AUTO-CONFIG bridge. Under Boot 4 the test
+		     auto-configuration was modularised: SecurityWebTestClientAutoConfiguration
+		     (which applies springSecurity() to the @WebFluxTest-autoconfigured
+		     WebTestClient so SecurityMockServerConfigurers.mockJwt() is honored) lives
+		     here, NOT in spring-boot-starter-test anymore. Without it the slice tests'
+		     mockJwt() silently no-ops and every authenticated request 401s. It registers
+		     itself into the @AutoConfigureWebTestClient slice via that slice's imports. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

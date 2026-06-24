@@ -394,16 +394,21 @@ SCG-5 route-namespace fix
 **not** apply — this service is not a Spring Cloud Gateway and carries no
 route config (its `application.yml` has no `spring.cloud.gateway.*`).
 
-**Known baseline drift (the one real follow-up):** this repo is **not
-yet migrated** onto the newly-unified ecosystem baseline. `pom.xml` still
-inherits `org.springframework.boot:spring-boot-starter-parent:3.5.5`
-(Spring Boot **3.5.x**, Java 21, Resilience4j `…-spring-boot3` 2.2.0) and
-does **not** consume `snapdragon-parent` (metapom 2.0.0) or
-`snapdragon-commons` (2.0.0) — whereas the rest of the Java estate (e.g.
-`federation-api`) has been migrated to **Spring Boot 4.0.2 /
-Spring Cloud 2025.1** on `snapdragon-parent` + `snapdragon-commons`. The
-`CasdoorAuthorities` / `Roles` / `DomainRegistry` classes here are still
-local copies rather than `systems.snapdragon.commons.*` imports.
+**Baseline:** this repo is on **Spring Boot 4.0.2** (Java 21) —
+`pom.xml` inherits `org.springframework.boot:spring-boot-starter-parent:4.0.2`
+directly, with Resilience4j `…-spring-boot4` 2.4.0 (+ `spring-boot-starter-aop`
+so the `@CircuitBreaker` aspect actually registers) and SpringDoc 3.0.3 (with
+`springdoc.api-docs.version: openapi_3_0` so the published spec stays OpenAPI
+3.0 for ng-openapi-gen 0.51.0). The Boot-4 WebFlux JSON codec is Jackson 3.
+
+**Remaining follow-up:** this service still inherits
+`spring-boot-starter-parent` **directly** rather than consuming
+`snapdragon-parent` (metapom 2.0.0) or `snapdragon-commons` (2.0.0) — whereas
+the rest of the Java estate (e.g. `federation-api`) runs on
+`snapdragon-parent` + `snapdragon-commons`. The `CasdoorAuthorities` / `Roles`
+/ `DomainRegistry` classes here are still local copies rather than
+`systems.snapdragon.commons.*` imports; adopting the metapom + commons is the
+outstanding consolidation step.
 
 ## Roadmap
 
