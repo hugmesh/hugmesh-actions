@@ -6,12 +6,12 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<!-- 4.0.2 brings this service onto the fleet's Boot-4 baseline (the fleet
-		     runs Spring Boot 4.0.2 via snapdragon-parent 2.0.0; this service tracks
+		<!-- 4.0.7 brings this service onto the fleet's Boot-4 baseline (the fleet
+		     runs Spring Boot 4.0.7 via snapdragon-parent 2.0.0; this service tracks
 		     the same Boot version directly). Boot 4 = Spring Framework 7 + Spring
 		     Security 7 + the Jackson-3 WebFlux codec; the resilience4j + springdoc
 		     deps below are bumped to their Boot-4-compatible lines accordingly. -->
-		<version>4.0.2</version>
+		<version>4.0.7</version>
 		<relativePath/>
 	</parent>
 
@@ -22,7 +22,7 @@
 	<description>Snapdragon platform-wide scheduled actions (cross-stack role sync, audit log, …)</description>
 
 	<properties>
-		<java.version>21</java.version>
+		<java.version>25</java.version>
 	</properties>
 
 	<dependencies>
