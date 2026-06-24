@@ -43,7 +43,7 @@ flowchart LR
     SC["snapdragon.systems Casdoor<br/>(canonical JWT issuer)"]
     GC["games Casdoor<br/>(optional service, opt-in)"]:::optional
     GH["GitHub API"]
-    BFF["snapdragon-admin-bff-api<br/>(ROLE_SERVICE first-login hook)"]
+    BFF["snapdragon-admin-bff-api<br/>(internal first-login hook<br/>X-Internal-Token + mTLS)"]
 
     GM -->|"read game-master / write admin"| SC
     GM -->|"write games admin<br/>(when games enabled)"| GC
@@ -178,8 +178,15 @@ hook in `snapdragon-admin-bff-api`: admin-bff already reads the
 per-`(domain, provider)` default-role map and applies it via Casdoor, but
 Casdoor exposes no first-login webhook in this org, so this scheduled
 probe observes the newest Casdoor users and calls the existing
-ROLE_SERVICE endpoint `POST /bff/internal/oidc/first-login` once per new
-signup. Scheduled every `app.actions.oidc-default-roles.interval-ms`
+admin-bff `POST /bff/internal/oidc/first-login` endpoint once per new
+signup. That endpoint lives under admin-bff's `/bff/internal/**` internal
+surface — `permitAll` at the Spring layer and gated instead by in-cluster
+mTLS (`server.ssl.client-auth=need`) plus a constant-time
+`X-Internal-Token` header check — so `OidcRoleHookClient` presents the
+shared `X-Internal-Token`
+(`app.actions.oidc-default-roles.internal-token`) and carries this
+service's own cluster mTLS client identity; it does **not** send a Casdoor
+`ROLE_SERVICE` bearer. Scheduled every `app.actions.oidc-default-roles.interval-ms`
 (default **5 min**), it reads the `limit` newest users, keeps only those
 created within the `lookback` window whose `signupApplication` maps to a
 configured provider and that it hasn't already seen, and applies each
@@ -396,8 +403,9 @@ route config (its `application.yml` has no `spring.cloud.gateway.*`).
 
 **Baseline:** this repo is on **Spring Boot 4.0.2** (Java 21) —
 `pom.xml` inherits `org.springframework.boot:spring-boot-starter-parent:4.0.2`
-directly, with Resilience4j `…-spring-boot4` 2.4.0 (+ `spring-boot-starter-aop`
-so the `@CircuitBreaker` aspect actually registers) and SpringDoc 3.0.3 (with
+directly, with Resilience4j `…-spring-boot4` 2.4.0 (+ a direct `aspectjweaver`
+dependency so the `@CircuitBreaker` aspect actually registers — Boot 4 removed
+the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
 `springdoc.api-docs.version: openapi_3_0` so the published spec stays OpenAPI
 3.0 for ng-openapi-gen 0.51.0). The Boot-4 WebFlux JSON codec is Jackson 3.
 
@@ -486,13 +494,16 @@ list of keys and defaults. Highlights:
 | Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |
 | OIDC default-role probe | `app.actions.oidc-default-roles.enabled` (`APP_OIDC_DEFAULT_ROLES_ENABLED`) | `false` (off → tick returns immediately, role-hook bean absent) |
 | OIDC probe interval | `app.actions.oidc-default-roles.interval-ms` | `300000` (5 min) |
+| OIDC admin-bff base URL | `app.actions.oidc-default-roles.admin-bff-base-url` (`APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL`) | in-cluster admin-bff DNS |
+| OIDC internal-token | `app.actions.oidc-default-roles.internal-token` (`APP_OIDC_DEFAULT_ROLES_INTERNAL_TOKEN`) | _(empty)_ — shared `X-Internal-Token` for the admin-bff first-login call |
 | MFA converter parity | `app.mfa.enabled` | `false` (off → `MFA_SATISFIED` marker never emitted) |
 | Federation confusable gate | `app.federation.username-check.enabled` (`APP_FEDERATION_USERNAME_CHECK_ENABLED`) | `false` |
 | GitHub API base | `app.github.base-url` (`GITHUB_API_BASE_URL`) | `https://api.github.com` |
 | mTLS | `server.ssl.*` (`SSL_ENABLED`, `SSL_CLIENT_AUTH`, …) | off / `none` |
 
 Resilience4j circuit breakers are configured per downstream
-(`casdoor`, `github`, `federation`) under `resilience4j.circuitbreaker.*`.
+(`casdoor`, `github`, `federation`, `admin-bff`) under
+`resilience4j.circuitbreaker.*`.
 
 ## API docs
 
