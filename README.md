@@ -354,7 +354,7 @@ capability on `main`.
 
 ## Current State
 
-*(as of 2026-06-24)*
+*(as of 2026-06-25)*
 
 **Shipped & active on `main`:**
 
