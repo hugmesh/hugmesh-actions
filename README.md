@@ -538,7 +538,7 @@ keys — PKI material is supplied from the USB at first boot.
 The pipeline has three stages (`stages: [test, build, pentest]`):
 
 1. **`test`** (✅ shipped) — runs `./mvnw verify -B` inside an
-   `eclipse-temurin:21-jdk-noble` container on the default branch / merge
+   `eclipse-temurin:25-jdk-noble` container on the default branch / merge
    requests / tags, publishing the JUnit surefire reports as artifacts.
 2. **`build:image`** (✅ shipped) — `needs: [test]`; builds and pushes the
    container image to the in-cluster registry on the default branch / on
