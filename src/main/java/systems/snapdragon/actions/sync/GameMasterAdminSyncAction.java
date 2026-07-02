@@ -9,8 +9,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import systems.snapdragon.actions.casdoor.CasdoorClient;
+import systems.snapdragon.actions.notify.RoleChangeNotifier;
 
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
@@ -49,11 +51,22 @@ import java.util.concurrent.atomic.AtomicReference;
  * next tick retries when the breaker half-opens. Default policy is
  * the standard {@code @CircuitBreaker} defaults; tune via
  * {@code resilience4j.circuitbreaker.instances.casdoor.*}.
+ *
+ * <p><b>Notifications v1 first caller.</b> After a confirmed membership
+ * write, every added/removed member gets an in-app "role changed"
+ * notification via {@link RoleChangeNotifier} (best-effort, fail-soft —
+ * see its own javadoc). Dark by default: while
+ * {@code app.actions.notify.enabled=false} the notifier is a logged
+ * no-op and this reconciler's write behaviour is unchanged.
  */
 @Service
 public class GameMasterAdminSyncAction {
 
     private static final Logger log = LoggerFactory.getLogger(GameMasterAdminSyncAction.class);
+
+    /** Bounded token identifying this reconciler as a notification source
+     *  (drives {@link RoleChangeNotifier}'s idempotent row id). */
+    static final String SOURCE_TABLE = "actions_gm_sync";
 
     private final CasdoorClient systems;
     private final CasdoorClient games;
@@ -61,6 +74,8 @@ public class GameMasterAdminSyncAction {
     private final String gamesRoleName;
     private final String systemsOrg;
     private final String gamesOrg;
+    private final RoleChangeNotifier notifier;
+    private final String gamesRoleLabel;
 
     private final Counter added;
     private final Counter removed;
@@ -74,6 +89,7 @@ public class GameMasterAdminSyncAction {
             @Qualifier("gamesCasdoorClient") CasdoorClient gamesClient,
             @Value("${app.actions.game-master-sync.systems-role:game-master}") String systemsRoleName,
             @Value("${app.actions.game-master-sync.games-role:admin}") String gamesRoleName,
+            RoleChangeNotifier notifier,
             MeterRegistry registry) {
         this.systems = systemsClient;
         this.games   = gamesClient;
@@ -81,6 +97,8 @@ public class GameMasterAdminSyncAction {
         this.gamesRoleName   = gamesRoleName;
         this.systemsOrg = systemsClient.organization();
         this.gamesOrg   = gamesClient.organization();
+        this.notifier   = notifier;
+        this.gamesRoleLabel = gamesRoleName + " on snapdragon." + gamesClient.label();
         this.added     = Counter.builder("actions.gm_sync.added")
                 .description("Users added to snapdragon.games admin during sync")
                 .register(registry);
@@ -153,7 +171,23 @@ public class GameMasterAdminSyncAction {
                     removed.increment(toRemove.size());
                 }
             })
+            .flatMap(ok -> Boolean.TRUE.equals(ok) ? notifyChanges(toAdd, toRemove) : Mono.empty())
             .then();
+    }
+
+    /**
+     * Notifications v1 first caller: after a CONFIRMED membership write,
+     * tell every added/removed member their games-admin role changed.
+     * Best-effort — {@link RoleChangeNotifier#roleChanged} always
+     * completes (dark writer, unresolvable user and delivery failure are
+     * all absorbed there), so a notification hiccup never fails this tick.
+     */
+    private Mono<Void> notifyChanges(Set<String> toAdd, Set<String> toRemove) {
+        Flux<Void> grants  = Flux.fromIterable(toAdd)
+                .flatMap(member -> notifier.roleChanged(member, gamesRoleLabel, true, SOURCE_TABLE));
+        Flux<Void> revokes = Flux.fromIterable(toRemove)
+                .flatMap(member -> notifier.roleChanged(member, gamesRoleLabel, false, SOURCE_TABLE));
+        return Flux.merge(grants, revokes).then();
     }
 
     private static Set<String> diff(Set<String> a, Set<String> b) {

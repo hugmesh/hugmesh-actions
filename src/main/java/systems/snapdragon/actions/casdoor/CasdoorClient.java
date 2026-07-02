@@ -127,6 +127,37 @@ public class CasdoorClient {
     }
 
     /**
+     * Resolve a username in this organization to the Casdoor user's stable
+     * {@code id} (the UUID the OAuth tokens carry as the JWT {@code sub}
+     * claim — live-verified against Casdoor: {@code /api/get-user} returns
+     * the same {@code id} a password/client-credentials token presents as
+     * {@code sub}). The notification writer needs this because user-bff's
+     * notification store is keyed by JWT subject, NOT by username.
+     *
+     * <p>Endpoint: {@code GET /api/get-user?id=<org>/<username>}. Resolves
+     * EMPTY (not an error) when the user does not exist or the response
+     * carries no usable {@code data.id}, so a caller can treat "unknown
+     * user" as skip rather than failure.
+     */
+    public Mono<String> getUserId(String username) {
+        return http.get()
+                .uri(uri -> uri.path("/api/get-user")
+                        .queryParam("id", organization + "/" + username)
+                        .build())
+                .retrieve()
+                .bodyToMono(Map.class)
+                .flatMap(body -> {
+                    Object data = body.get("data");
+                    if (data instanceof Map<?, ?> m
+                            && m.get("id") instanceof String id
+                            && !id.isBlank()) {
+                        return Mono.just(id);
+                    }
+                    return Mono.empty();
+                });
+    }
+
+    /**
      * Read the most recently created users in this organization, newest
      * first. Backs the OIDC default-role registration probe: it asks
      * Casdoor for the {@code limit} newest users (sorted by

@@ -99,6 +99,35 @@ opens the breaker and the next tick retries instead of piling up work.
 | `{alice}` | `{alice, dropped}` | `{alice}` |
 | `{alice}` | `{alice}` | `{alice}` (no-op) |
 
+#### Notifications v1 — first caller (`RoleChangeNotifier`)
+
+> **Disabled by default (✅ shipped).** Gated behind
+> `app.actions.notify.enabled` (env `ACTIONS_NOTIFY_ENABLED`), default
+> `false`. While disabled `RoleChangeNotifier` is a **logged no-op**
+> (`actions.notify.skipped` counts every call) — the reconciler's write
+> behaviour is bit-for-bit unchanged and **nothing writes
+> `user_notifications`**. This is the platform's declared "first caller"
+> of notifications v1 (snapdragon-user-bff-api `#72`): until this flag
+> flips in-cluster, the notifications floor exists but stays empty.
+
+After a **confirmed** games-admin membership write, every added/removed
+member is notified (best-effort — a notification hiccup never fails the
+sync tick) via `POST /bff/user/internal/notifications` on
+snapdragon-user-bff-api, using a Casdoor `ROLE_SERVICE` client-credentials
+bearer (same mint+cache the federation username client uses). The target
+user's JWT subject is resolved from their username against the
+**snapdragon.systems** Casdoor (`CasdoorClient#getUserId` —
+`GET /api/get-user`; login identity always lives in systems regardless of
+which org's role changed). An unresolvable username is skipped and
+counted, never guessed.
+
+user-bff reports an honest outcome for every delivery: `delivered=false,
+reason=suppressed` means the target silenced the `role-change` category
+(not an error); `deduped=true` means the same reconcile-tick delivery was
+already applied (idempotent on `(sourceTable, sourceId)` — the sourceId
+stamps the tick's epoch-millis so a retried HTTP call dedupes while a
+later genuine re-grant/re-revoke of the same role still notifies).
+
 ### `GitHubOrgAdminGrantAction` — GitHub org admin → systems admin
 
 > **Disabled by default (✅ shipped).** The whole GitHub-org-admin
@@ -383,6 +412,13 @@ capability on `main`.
   `snapdragon-gateway` + `snapdragon-admin-bff-api`), the config-gated
   federation confusable gate, SpringDoc/Swagger surface, and the GitLab
   three-stage CI pipeline (test → build:image → pentest).
+- Notifications v1's **first caller** (`RoleChangeNotifier`, wired into
+  `GameMasterAdminSyncAction`) ships **dark / gated off by default**
+  (`app.actions.notify.enabled=false` → logged no-op, `user_notifications`
+  stays empty). It calls snapdragon-user-bff-api's `ROLE_SERVICE`-only
+  `POST /bff/user/internal/notifications` (merged to `main` in user-bff
+  `#72`) with a Casdoor client-credentials bearer, resolving the target's
+  JWT subject via the systems Casdoor's `getUserId`.
 
 **Where this repo sits vs the platform auth model (2026 cycle):** the
 platform SSO flow now runs `login-ui` → `user-bff` (server-side code
@@ -473,6 +509,11 @@ Prometheus is exposed at `/actuator/prometheus` (gated to
 | `actions.oidc_default_roles.applied` | counter | New users for whom OIDC-provider default roles were applied via admin-bff (default-off) |
 | `actions.oidc_default_roles.skipped` | counter | New users skipped (already seen / unmapped provider / outside lookback) |
 | `actions.oidc_default_roles.errors` | counter | OIDC default-role probe ticks / per-user applies that failed |
+| `actions.notify.delivered` | counter | In-app notifications freshly delivered to user-bff |
+| `actions.notify.deduped` | counter | Deliveries user-bff recognised as an already-delivered source event |
+| `actions.notify.suppressed` | counter | Deliveries user-bff suppressed per the target's category preference |
+| `actions.notify.skipped` | counter | Notifications skipped (writer dark, or target user unresolvable) |
+| `actions.notify.errors` | counter | Notification deliveries that failed (fail-soft — the reconcile tick continues) |
 
 ## Configuration
 
@@ -498,6 +539,9 @@ list of keys and defaults. Highlights:
 | OIDC internal-token | `app.actions.oidc-default-roles.internal-token` (`APP_OIDC_DEFAULT_ROLES_INTERNAL_TOKEN`) | _(empty)_ — shared `X-Internal-Token` for the admin-bff first-login call |
 | MFA converter parity | `app.mfa.enabled` | `false` (off → `MFA_SATISFIED` marker never emitted) |
 | Federation confusable gate | `app.federation.username-check.enabled` (`APP_FEDERATION_USERNAME_CHECK_ENABLED`) | `false` |
+| Notifications v1 writer | `app.actions.notify.enabled` (`ACTIONS_NOTIFY_ENABLED`) | `false` (off → `RoleChangeNotifier` is a logged no-op, nothing writes `user_notifications`) |
+| Notifications v1 target user-bff | `app.actions.notify.user-bff-base-url` (`APP_ACTIONS_NOTIFY_USER_BFF_BASE_URL`) | in-cluster user-bff DNS |
+| Notifications v1 domain tag | `app.actions.notify.domain` (`APP_ACTIONS_NOTIFY_DOMAIN`) | `default` |
 | GitHub API base | `app.github.base-url` (`GITHUB_API_BASE_URL`) | `https://api.github.com` |
 | mTLS | `server.ssl.*` (`SSL_ENABLED`, `SSL_CLIENT_AUTH`, …) | off / `none` |
 
