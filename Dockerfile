@@ -15,6 +15,10 @@ COPY src src
 RUN ./mvnw -B package -DskipTests
 
 FROM eclipse-temurin:25-jre
+# curl is required by this image's docker-compose HEALTHCHECK (actuator/health/readiness);
+# eclipse-temurin's jre base does not ship it, which silently breaks every
+# `depends_on: condition: service_healthy` gate on a fresh compose boot.
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /work/target/*.jar app.jar
 EXPOSE 8090
