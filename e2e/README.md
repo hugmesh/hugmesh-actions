@@ -15,7 +15,7 @@ e2e/
 │   ├── steps/
 │   │   ├── sync-steps.ts
 │   │   ├── auth-steps.ts
-│   │   └── helpers/{casdoor.ts, actions.ts}
+│   │   └── helpers/{casdoor.ts, actions.ts, login-ui.ts}
 │   └── support/fixtures.ts                   ← AfterStep PNG hook
 ├── playwright.config.ts                      ← bdd project, video=on
 ├── scripts/bring-up-stack.sh                 ← docker compose orchestrator
@@ -84,6 +84,67 @@ Every run produces:
   (always; not just on failure).
 - `results/artifacts/<test>/trace.zip` — on failure only; replay
   with `npx playwright show-trace …`.
+
+## Login policy — native login-ui form only, never Casdoor's hosted page
+
+Two distinct things get conflated as "login". This suite keeps them apart:
+
+**1. Browser login → OUR login-ui native form (never Casdoor).**
+Any scenario that logs a user in through a real browser goes through our own
+login-ui native username/password form — never Casdoor's hosted login page.
+The helper lives in `helpers/login-ui.ts`:
+
+- `loginViaNativeForm(page, { username, password, mfaPasscode? })` fills the
+  login-ui form by its test ids — `login-username`, `login-password`,
+  `login-submit` — and submits.
+- Submitting POSTs `/bff/login` (user-bff, reached **via be-gateway**;
+  `permitAll` at the BFF security layer). user-bff runs the entire OIDC/PKCE
+  handshake with Casdoor **server-side**: it generates the PKCE
+  `code_verifier` + S256 `code_challenge` and a random `state` itself, POSTs
+  Casdoor's internal `/api/login`, exchanges the returned code via auth-core's
+  `OidcExchangeClient`, and completes provision + custody + cookie.
+- The browser never receives a JWT / access / refresh / id token, the
+  `code_verifier`, the `state`, or any Casdoor URL. The only credential handed
+  back is the opaque, httpOnly `bff_<opaque>` session cookie in the
+  `Set-Cookie` header (`SameSite=Lax`, host-only). **The session token appears
+  only in Set-Cookie, never in the response body.**
+
+`/bff/login` response contract:
+
+| Case | Status | Body | Cookie |
+|---|---|---|---|
+| success | 200 | `{ registrationComplete, status:"active", mfaRequired:false }` | `Set-Cookie: bff_<opaque>` |
+| MFA required | 200 | `{ mfaRequired:true, mfaType:[…] }` | none (no session minted) |
+| bad credentials | 401 | `{ error:"invalid_credentials", message:<casdoor msg> }` | none |
+| SSO surface dark | 503 | — | none |
+
+(503 when `app.bff.oidc.enabled=false` or the custody key is blank.)
+
+`bffLogin(creds)` in the same helper is a headless stand-in that POSTs
+`/bff/login` through be-gateway directly — still OUR contract endpoint, never
+Casdoor's hosted form — for asserting the response contract without a browser.
+
+> **login-ui dependency.** The browser helper drives login-ui test ids
+> `login-username` / `login-password` / `login-submit`, plus
+> `login-mfa-passcode` for the MFA follow-up (login-ui will add this one). The
+> browser-login helpers target the full platform stack via `LOGIN_UI_URL`
+> (default `http://localhost:8081`) and `GATEWAY_BASE_URL` (default
+> `http://localhost:8080`); the actions-only compose in this repo does not ship
+> login-ui / be-gateway / user-bff, so browser-login scenarios require the full
+> platform stack to be up.
+
+**2. Server-side token acquisition for test SETUP → may hit Casdoor directly.**
+Minting a Bearer JWT to seed or assert cross-stack state directly against the
+actions API is **server-to-server**, not a browser login, so it is allowed to
+call Casdoor's token endpoint directly. Those paths are labelled
+**SERVER-SIDE ONLY**:
+
+- `helpers/casdoor.ts` — Casdoor admin REST API (add-user / get-role /
+  update-role) that seeds and asserts role state.
+- `scripts/bring-up-stack.sh` — per-role Bearer JWT minting via Casdoor's
+  OAuth2 password grant / token endpoint.
+
+Neither renders Casdoor's hosted login form or logs a user in through a browser.
 
 ## Token wiring
 

@@ -1,5 +1,21 @@
 import { request } from '@playwright/test';
 
+// =============================================================================
+// SERVER-SIDE ONLY — Casdoor admin API for test SETUP / provisioning.
+// =============================================================================
+//
+// Everything in this file is server-to-server: it calls Casdoor's admin REST
+// API (add-user / get-role / update-role) with the snapdragon-actions client
+// credentials to SEED and ASSERT cross-stack role state. This is NOT a login
+// and there is no browser here.
+//
+// This is deliberately allowed to talk to Casdoor directly — it is the
+// server-side test-setup carve-out. It never renders Casdoor's hosted login
+// page and is never used to log a user in. All BROWSER logins go through OUR
+// login-ui native form instead (see helpers/login-ui.ts, POST /bff/login via
+// be-gateway).
+// =============================================================================
+
 interface CasdoorConfig {
   baseUrl: string;
   clientId: string;

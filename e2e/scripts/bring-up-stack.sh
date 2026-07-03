@@ -57,13 +57,23 @@ done
 
 # Tokens: e2e tests need bearer tokens for ROLE_USER / ROLE_PRODUCER
 # / ROLE_MOD / ROLE_GAME-MASTER / ROLE_ADMIN against the systems
-# Casdoor. In a real run these are minted via the OAuth2 password
-# grant. For e2e we mint via Casdoor's /api/login endpoint; users +
-# roles are seeded by the e2e compose overlay.
+# Casdoor.
+#
+# SERVER-SIDE ONLY. This is test SETUP — a server-to-server Bearer JWT
+# acquisition, NOT a browser login. It is deliberately allowed to hit
+# Casdoor directly (OAuth2 password grant / Casdoor /api/login token
+# endpoint) because no browser is involved and the resulting JWT is used
+# only to call the actions API directly from the auth steps. It never
+# renders Casdoor's hosted login form.
+#
+# BROWSER logins (when a scenario drives a real page) go through OUR
+# login-ui native form instead — POST /bff/login via be-gateway — see
+# e2e/features/steps/helpers/login-ui.ts. Casdoor's hosted login page is
+# never used anywhere in this suite.
 #
 # This script writes the tokens to e2e/.tokens.json. The auth-steps
 # helper reads from there; missing tokens fall back to env vars.
-echo "→ Minting per-role bearer tokens (TODO: real impl)..."
+echo "→ Minting per-role bearer tokens, SERVER-SIDE via Casdoor (TODO: real impl)..."
 echo '{}' > e2e/.tokens.json
 
 echo "✓ Stack up. Run `npm --prefix e2e test` to execute the suite."
