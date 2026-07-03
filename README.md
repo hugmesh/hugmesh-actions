@@ -635,3 +635,15 @@ JSON-bound DTOs that cross the HTTP boundary and the
 
 The AOT pipeline (`./mvnw -Pnative spring-boot:process-aot`) is verified;
 run `native:compile` on a GraalVM JDK to produce the binary.
+
+## Known Gaps / TODO
+
+- **e2e per-role access matrix assumes the GitHub-org-admin feature is
+  live.** `e2e/README.md`'s `per-role-access.feature` table expects `200`
+  for an admin caller on `POST /api/registration/github-org-admin/evaluate`,
+  but the feature's master switch (`app.actions.gh-org-admin.enabled`,
+  see Configuration above) defaults to `false` and is not turned on
+  anywhere in `compose.yaml` or `e2e/scripts/bring-up-stack.sh` — so as
+  configured today that call returns `404` before the role check ever
+  matters. Either flip `GH_ORG_ADMIN_ENABLED=true` in the e2e compose
+  environment or correct the expected status in the e2e docs/scenario.

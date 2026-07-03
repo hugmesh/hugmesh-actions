@@ -24,21 +24,21 @@ import java.util.Set;
  *
  * <ul>
  *   <li>fe-gateway route prefixes: admin, apidocs, be, bff, _fragments,
- *       fragments, login, mod, user;</li>
- *   <li>be-gateway route prefixes: api, _matrix, oauth, forum;</li>
- *   <li>reserved subdomains: id, api, matrix, mastodon, scale, headscale,
- *       www;</li>
+ *       _remotes, fragments, login, logout, mod, user, users;</li>
+ *   <li>be-gateway route prefixes: api, _matrix, matrix, mastodon, pleroma,
+ *       forum, oauth, oauth2;</li>
+ *   <li>reserved subdomains: id, auth, scale, headscale, www;</li>
  *   <li>the snapdragon.games app route prefixes (derived from the games
  *       front-end nginx {@code /_remotes/<slug>/} blocks + location
  *       prefixes + the {@code <service>.snapdragon.games} subdomains):
  *       games, play, wasm, wasm-fragment, producer, producer-registration,
- *       publisher, registration, banned, api-docs, docs, _remotes,
+ *       publisher, registration, banned, api-docs, docs,
  *       games-dodecahedron, games-rpg-maker, games-three-wizards,
  *       games-vn-maker;</li>
  *   <li>defensive web/infra names (root, static, assets, public, health,
  *       healthz, actuator, metrics, well-known, favicon, robots, sitemap,
  *       status, support, help, social, gm, pki, vault, argocd, gitlab,
- *       registry, logout, users, auth).</li>
+ *       registry).</li>
  * </ul>
  *
  * <p>The SAME canonical list is duplicated verbatim in

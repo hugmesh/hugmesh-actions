@@ -15,7 +15,6 @@ import systems.snapdragon.actions.casdoor.CasdoorClient;
 import systems.snapdragon.actions.notify.RoleChangeNotifier;
 
 import jakarta.annotation.PostConstruct;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;

@@ -1,9 +1,15 @@
 # snapdragon-actions e2e suite
 
-Playwright + playwright-bdd. Verifies the cross-stack admin sync
-end-to-end against two real Casdoor instances + the
-`snapdragon-actions` service, plus a per-role access matrix that
-locks in the SecurityConfig path-matchers.
+End-to-end tests using Playwright and playwright-bdd. The suite has
+two concerns:
+
+1. **Cross-stack admin sync** — verifies that granting or revoking the
+   `game-master` role in the *systems* Casdoor instance propagates
+   correctly to the *games* Casdoor instance via `snapdragon-actions`,
+   and that Prometheus counters reflect each outcome.
+2. **Per-role access matrix** — locks in the `SecurityConfig`
+   path-matchers by hitting protected endpoints as each role tier and
+   asserting the correct HTTP response.
 
 ## Layout
 
@@ -25,18 +31,20 @@ e2e/
 
 ## Running
 
+Run all commands from the repository root.
+
 ```bash
-# Bring up casdoor-systems + casdoor-games + snapdragon-actions.
+# 1. Start casdoor-systems, casdoor-games, and snapdragon-actions via Docker Compose.
 bash e2e/scripts/bring-up-stack.sh
 
-# Install + run the BDD project.
+# 2. Install dependencies and run the full BDD suite.
 npm --prefix e2e install
 npm --prefix e2e test
 
-# Open the HTML report (per-step PNGs + per-scenario videos).
+# 3. Open the HTML report in your browser (per-step PNGs + per-scenario videos).
 npm --prefix e2e run report
 
-# Stop everything when done.
+# 4. Tear down all containers when done.
 bash e2e/scripts/bring-up-stack.sh stop
 ```
 
@@ -44,23 +52,53 @@ bash e2e/scripts/bring-up-stack.sh stop
 
 ### `cross-stack-admin-sync.feature` (3 scenarios)
 
+Each scenario drives the full sync loop: it seeds state in both
+Casdoor instances, triggers a sync tick in `snapdragon-actions`, then
+asserts both the Casdoor side-effect and the Prometheus counter.
+
+```mermaid
+sequenceDiagram
+    participant T as Test (step)
+    participant S as casdoor-systems
+    participant A as snapdragon-actions
+    participant G as casdoor-games
+    participant P as /actuator/metrics
+
+    T->>S: seed role state (grant or revoke game-master)
+    T->>T: wait out one scheduled tick\n(GM_SYNC_INTERVAL_MS, shortened to 2s in e2e)
+    A->>S: read current game-masters
+    A->>G: read current admins
+    A->>G: apply diff (add / remove / skip)
+    A->>P: increment gm_sync.added / .removed / .unchanged
+    T->>G: assert admin membership changed (or unchanged)
+    T->>P: assert counter incremented
+```
+
 | Scenario | Arrange | Trigger | Assert |
 |---|---|---|---|
-| grant flows through | user exists on both Casdoors, no admin on games | grant game-master on systems | next sync tick lands admin on games; `gm_sync.added` counter ++ |
-| revoke flows through | user has game-master on systems AND admin on games | remove game-master on systems | next tick strips admin on games; `gm_sync.removed` counter ++ |
-| in-sync is no-op | empty sets on both sides | sync tick | no Casdoor write; `gm_sync.unchanged` counter ++ |
+| grant flows through | User exists on both Casdoors; no admin role on games | Grant `game-master` on systems | Next sync tick adds admin on games; `gm_sync.added` counter increments |
+| revoke flows through | User holds `game-master` on systems and admin on games | Remove `game-master` on systems | Next tick removes admin on games; `gm_sync.removed` counter increments |
+| in-sync is no-op | Both sides have empty role sets | Sync tick | No Casdoor write occurs; `gm_sync.unchanged` counter increments |
 
 ### `per-role-access.feature` (6 scenarios)
 
-One scenario per role tier (anonymous / player / producer / mod /
-game-master / admin) hitting:
+One scenario per role tier hits three endpoints that each require a
+different authority level, asserting the correct HTTP status for that
+tier. A regression in any `SecurityConfig` path-matcher causes the
+corresponding scenario to fail immediately.
 
-- `/actuator/health` → public probe
-- `/actuator/metrics` → `ROLE_GAME-MASTER`
-- `/api/registration/github-org-admin/evaluate` → `ROLE_ADMIN`
+| Endpoint | Required role | Anonymous | player | producer | mod | game-master | admin |
+|---|---|---|---|---|---|---|---|
+| `GET /actuator/health` | public | 200 | 200 | 200 | 200 | 200 | 200 |
+| `GET /actuator/metrics` | `ROLE_GAME-MASTER` | 401 | 403 | 403 | 403 | 200 | 200 |
+| `POST /api/registration/github-org-admin/evaluate` | `ROLE_ADMIN` | 401 | 403 | 403 | 403 | 403 | 200 |
 
-If a SecurityConfig path-matcher regresses, the matching role
-scenario fails loudly.
+> **Note:** The `200` for `admin` above is the target behaviour once the
+> GitHub-org-admin feature is enabled. The feature's master switch
+> (`app.actions.gh-org-admin.enabled` / `GH_ORG_ADMIN_ENABLED`) defaults to
+> `false` and is not set in `compose.yaml` or `bring-up-stack.sh`, so as the
+> stack is wired today an admin caller gets `404` instead. See the top-level
+> README's Known Gaps section.
 
 > **What is actually asserted today.** Only the **anonymous** scenario
 > runs end-to-end right now — it needs no bearer token. The five
@@ -75,15 +113,14 @@ scenario fails loudly.
 
 ## Reports
 
-Every run produces:
+Every run writes the following artifacts under `e2e/results/`:
 
-- `results/html/index.html` — Playwright's HTML report, browsable.
-- `results/artifacts/<test>/attachments/step-NN-...png` — one PNG
-  per Gherkin step, attached to the report.
-- `results/artifacts/<test>/video.webm` — full per-scenario video
-  (always; not just on failure).
-- `results/artifacts/<test>/trace.zip` — on failure only; replay
-  with `npx playwright show-trace …`.
+| Artifact | Path | Notes |
+|---|---|---|
+| HTML report | `html/index.html` | Browsable; open with `npm --prefix e2e run report` |
+| Step screenshots | `artifacts/<test>/attachments/step-NN-….png` | One PNG per Gherkin step, linked inside the HTML report |
+| Scenario video | `artifacts/<test>/video.webm` | Captured for every scenario, not just failures |
+| Trace archive | `artifacts/<test>/trace.zip` | Failure only; replay with `npx playwright show-trace <path>` |
 
 ## Login policy — native login-ui form only, never Casdoor's hosted page
 
@@ -148,12 +185,49 @@ Neither renders Casdoor's hosted login form or logs a user in through a browser.
 
 ## Token wiring
 
-`auth-steps.ts` reads per-role bearer tokens from
-`e2e/.tokens.json` (written by the bring-up script after the
-Casdoor seeds settle). If the file is missing the helper falls
-back to env vars: `TOKEN_ADMIN`, `TOKEN_GAME_MASTER`,
-`TOKEN_PRODUCER`, `TOKEN_MOD`, `TOKEN_USER`. The bring-up's token-
-generation step is currently a stub — wiring it to the real
-Casdoor token-grant endpoint is a follow-up; tests for now
-exercise the unauthenticated lanes (anonymous + sync action +
-counter assertions) without needing real tokens.
+`auth-steps.ts` supplies bearer tokens to role-authenticated requests.
+It looks for tokens in the following order:
+
+1. **`e2e/.tokens.json`** — written by `bring-up-stack.sh` once the
+   Casdoor seed data has settled. Expected shape:
+   ```json
+   {
+     "admin":       "<bearer token>",
+     "game_master": "<bearer token>",
+     "producer":    "<bearer token>",
+     "mod":         "<bearer token>",
+     "user":        "<bearer token>"
+   }
+   ```
+2. **Environment variables** — fallback when `.tokens.json` is absent:
+   `TOKEN_ADMIN`, `TOKEN_GAME_MASTER`, `TOKEN_PRODUCER`, `TOKEN_MOD`,
+   `TOKEN_USER`.
+
+> **Note:** The token-generation step in `bring-up-stack.sh` is
+> currently a stub. Wiring it to the real Casdoor token-grant endpoint
+> is a follow-up task. Until then, scenarios that require authenticated
+> tokens are skipped; the suite exercises unauthenticated paths
+> (anonymous probes, sync trigger, and counter assertions) without real
+> tokens.
+
+## Known Gaps / TODO
+
+- **`GM_SYNC_INTERVAL_MS` is never actually shortened for e2e runs.**
+  `bring-up-stack.sh`'s header comment (`e2e/scripts/bring-up-stack.sh:6`)
+  and its body comment (`e2e/scripts/bring-up-stack.sh:31-32`, "an e2e
+  overlay that shortens the sync tick") both describe an override to
+  `2000`ms, but no such override file exists and the script only runs
+  `docker compose -f compose.yaml up -d --wait` (`e2e/scripts/bring-up-stack.sh:33`)
+  against the repo-root `compose.yaml`, which does not set
+  `GM_SYNC_INTERVAL_MS` — so the action service actually runs the
+  `application.yml` default of `60000`ms. Meanwhile
+  `waitForSyncTick()` (`e2e/features/steps/helpers/actions.ts:38-43`)
+  falls back to `process.env.GM_SYNC_INTERVAL_MS ?? '2000'` and only
+  waits `2.2×` that value (~4.4 s) when the env var isn't set. As wired
+  today the sync scenarios wait roughly 4.4 s for a tick that actually
+  fires every 60 s, which reads as a likely source of flakes/failures
+  in `cross-stack-admin-sync.feature` rather than the documented
+  guaranteed tick crossing. Either add the missing compose override (set
+  `GM_SYNC_INTERVAL_MS=2000` on the `snapdragon-actions` service for the
+  e2e stack) or raise the helper's default/timeout to match the real
+  60 s interval.

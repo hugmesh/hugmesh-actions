@@ -187,13 +187,18 @@ public class GitHubOrgAdminGrantAction {
      * cached (or freshly minted via the OAuth client's refresh-token
      * flow).
      *
-     * <p>This is the on-demand, single-user revoke path kept intact
-     * for the grant/sign-in flow. The scheduled reconciler does NOT
-     * fan this out per-user — concurrent per-user read-modify-writes
-     * against the one role list lost updates (last-writer-wins). It
-     * instead uses {@link #isStillEligible} (read-only, safe to run
-     * concurrently) to collect the losers and {@link #revokeAll} to
-     * apply them in a single atomic-per-tick read-modify-write.
+     * <p>This is the old on-demand, single-user revoke path. No
+     * production caller invokes it any more — {@link
+     * systems.snapdragon.actions.web.RegistrationController} only
+     * calls {@link #evaluateAndGrant}, and the scheduled reconciler
+     * ({@link GitHubOrgAdminReconcileAction}) does NOT fan this out
+     * per-user — concurrent per-user read-modify-writes against the
+     * one role list lose updates (last-writer-wins). It instead uses
+     * {@link #isStillEligible} (read-only, safe to run concurrently)
+     * to collect the losers and {@link #revokeAll} to apply them in a
+     * single atomic-per-tick read-modify-write. Kept only for its unit
+     * test coverage; prefer the {@code isStillEligible}/{@code
+     * revokeAll} pair for any new revoke path.
      */
     @CircuitBreaker(name = "github")
     public Mono<Boolean> revokeIfNoLongerEligible(String githubBearer, String snapdragonUsername) {

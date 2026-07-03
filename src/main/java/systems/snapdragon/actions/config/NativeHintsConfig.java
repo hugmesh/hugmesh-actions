@@ -68,7 +68,6 @@ public class NativeHintsConfig {
                     .registerType(RegistrationController.GrantRequest.class, dtoCategories())
                     .registerType(RegistrationController.GrantResponse.class, dtoCategories())
                     .registerType(GitHubClient.User.class, dtoCategories())
-                    .registerType(GitHubClient.OrgMembership.class, dtoCategories())
                     .registerType(GitHubClient.RepoPermission.class, dtoCategories());
 
             hints.reflection()

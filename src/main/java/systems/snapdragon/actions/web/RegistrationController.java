@@ -1,5 +1,10 @@
 package systems.snapdragon.actions.web;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -69,6 +74,9 @@ import systems.snapdragon.actions.sync.GitHubOrgAdminGrantAction;
  * federation outage rejects rather than mints a look-alike (the local exact
  * reserved fast-path still runs first regardless).
  */
+@Tag(name = "Registration", description = "Internal service surface for GitHub OAuth signup: "
+        + "reserved-username gate, federation confusable gate, and GitHub-org-admin evaluation. "
+        + "Called by the registration remote's BFF — not a public user-facing endpoint.")
 @RestController
 @RequestMapping("/api/registration")
 @Validated
@@ -121,6 +129,21 @@ public class RegistrationController {
 
     public record GrantResponse(String memberId) {}
 
+    @Operation(operationId = "evaluateGithubOrgAdmin",
+            summary = "Evaluate GitHub-org-admin eligibility and conditionally grant admin on snapdragon.systems Casdoor.",
+            description = "Called by the registration remote BFF after a user signs up via GitHub OAuth. "
+                    + "Runs in order: (1) local reserved-username gate (422 on collision), "
+                    + "(2) federation confusable/availability gate if configured (422 on collision, fails closed), "
+                    + "(3) GitHub-org-admin eligibility check + conditional Casdoor admin grant.<br>"
+                    + "<b>Role:</b> Internal service-to-service call (gated by SecurityConfig to internal callers).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Evaluated — memberId returned (granted or already a member)"),
+            @ApiResponse(responseCode = "400", description = "Validation failed — missing/invalid field", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Unauthenticated — no valid JWT", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Not eligible for org admin grant", content = @Content),
+            @ApiResponse(responseCode = "422", description = "Username is reserved or collides (confusable/exact) with an existing name", content = @Content),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error", content = @Content)
+    })
     @PostMapping("/github-org-admin/evaluate")
     public Mono<GrantResponse> evaluate(@Valid @RequestBody GrantRequest req) {
         rejectReservedUsername(req.snapdragonUsername());

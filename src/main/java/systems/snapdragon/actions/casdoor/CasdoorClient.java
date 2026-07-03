@@ -4,6 +4,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -20,18 +21,17 @@ import java.util.Map;
  * keeps the credentials off the access log.
  *
  * <p>This is a deliberately small surface — we don't need every
- * Casdoor admin operation, only the four primitives the sync action
+ * Casdoor admin operation, only the primitives the sync action
  * composes:
  *
  * <ul>
- *   <li>{@link #listUsersInRole(String, String)} — paginated walk of
- *       a role's members.</li>
- *   <li>{@link #getRole(String, String)} — fetch a role's full
+ *   <li>{@link #listUsersInRole(String)} — flattened walk of a
+ *       role's members.</li>
+ *   <li>{@link #getRoleMembers(String)} — fetch a role's full
  *       member list (Casdoor's role.users field).</li>
- *   <li>{@link #addRoleMember(String, String, String)} — append to
- *       role.users (idempotent — Casdoor dedups).</li>
- *   <li>{@link #removeRoleMember(String, String, String)} — remove
- *       from role.users.</li>
+ *   <li>{@link #setRoleMembers(String, List)} — replace a role's
+ *       whole member list (Casdoor has no "add/remove one member"
+ *       call).</li>
  * </ul>
  */
 public class CasdoorClient {
@@ -43,7 +43,7 @@ public class CasdoorClient {
     public CasdoorClient(String baseUrl, String clientId, String clientSecret,
                           String organization, String label) {
         String basic = Base64.getEncoder().encodeToString(
-                (clientId + ":" + clientSecret).getBytes());
+                (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
         this.http = WebClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader("Authorization", "Basic " + basic)

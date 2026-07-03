@@ -50,7 +50,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
                         + "ng-openapi-gen typed-clients + the admin api-docs module."))
 public class SnapdragonActionsApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(SnapdragonActionsApplication.class, args);
-	}
+    public static void main(String[] args) {
+        SpringApplication.run(SnapdragonActionsApplication.class, args);
+    }
 }

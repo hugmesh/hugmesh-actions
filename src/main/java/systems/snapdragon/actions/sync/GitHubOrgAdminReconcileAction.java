@@ -19,15 +19,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * Scheduled reconciler that closes audit gap #5: an admin whose GitHub
  * org-admin reach has been removed must lose snapdragon.systems admin
  * automatically, not just at the next sign-in.
  *
- * <p>{@link GitHubOrgAdminGrantAction#revokeIfNoLongerEligible} already
+ * <p>{@link GitHubOrgAdminGrantAction#isStillEligible} already
  * encapsulates the revoke decision for a single user, but nothing called
- * it on a timer — this action is that caller. It mirrors the shape of
+ * it on a timer — this action is that caller (via {@code isStillEligible}
+ * + {@link GitHubOrgAdminGrantAction#revokeAll}, not the single-user
+ * {@link GitHubOrgAdminGrantAction#revokeIfNoLongerEligible}, which is
+ * unsafe to fan out concurrently). It mirrors the shape of
  * {@link GameMasterAdminSyncAction}: a reactive {@code Mono} pipeline,
  * a resilience4j {@code @CircuitBreaker} over the external side, and a
  * configurable {@code interval-ms} / {@code initial-delay-ms} under
@@ -162,7 +166,7 @@ public class GitHubOrgAdminReconcileAction {
 
         return Flux.fromIterable(usernameByMember.values())
             .flatMap(this::evaluateOne, MAX_CONCURRENCY)
-            .collect(java.util.stream.Collectors.toSet())
+            .collect(Collectors.toSet())
             .flatMap(toRevoke -> {
                 if (toRevoke.isEmpty()) return Mono.empty();
                 log.info("[gh-org-admin-reconcile] revoking {} admin(s) — GitHub reach removed: {}",
