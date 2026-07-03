@@ -298,10 +298,11 @@ in [SECURITY.md](SECURITY.md)):
 
 ### How this service fits the platform auth model
 
-The platform's user-facing auth is an SSO flow: `login-ui` runs a Casdoor
-OIDC authorization-code (PKCE) redirect, `user-bff` performs the
-server-side code→token exchange and holds per-session JWT custody, and
-the browser only ever holds an **opaque `bff_`-prefixed session** (the
+The platform's user-facing auth is an SSO flow: `login-ui` POSTs a native
+username/password form to `/bff/login` and `user-bff` drives the
+internal Casdoor `/api/login` + code exchange server-side and holds
+per-session JWT custody; the browser is never redirected to Casdoor,
+and the browser only ever holds an **opaque `bff_`-prefixed session** (the
 end user never sees a Casdoor JWT). The `snapdragon-gateway` is a pure
 Casdoor-JWT OAuth2 resource server: a pre-security exchange filter swaps
 the `bff_` session for the internal custody JWT, then runs JWT validation
