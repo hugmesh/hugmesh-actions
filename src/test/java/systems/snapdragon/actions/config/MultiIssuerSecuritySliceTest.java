@@ -11,8 +11,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
-import systems.snapdragon.actions.security.DomainRegistry;
 import systems.snapdragon.actions.testsupport.TestIssuer;
+import systems.snapdragon.commons.config.TenancyResolvers;
+import systems.snapdragon.commons.config.TenancyResourceServerConfig;
+import systems.snapdragon.commons.security.DomainRegistry;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -67,7 +69,7 @@ class MultiIssuerSecuritySliceTest extends SecuritySliceSupport {
 
         // Multi-issuer registry: brand-X + brand-Y trusted; rogue is NOT listed.
         String issuersCsv = brandX.issuerUri() + "=brandx," + brandY.issuerUri() + "=brandy";
-        DomainRegistry registry = new DomainRegistry(brandX.issuerUri(), issuersCsv, "");
+        DomainRegistry registry = new DomainRegistry(brandX.issuerUri(), issuersCsv);
         assertThat(registry.isMultiIssuer())
                 .as("two trusted issuers => multi-issuer mode, the resolver swap is taken")
                 .isTrue();
@@ -75,9 +77,11 @@ class MultiIssuerSecuritySliceTest extends SecuritySliceSupport {
         // REAL resolver bean (per-issuer manager + Casdoor converter), built exactly
         // as TenancyResourceServerConfig contributes it. No back-compat jwk-set-uri,
         // so each brand decoder discovers from its own issuer (the in-process server).
-        TenancyResourceServerConfig tenancy = new TenancyResourceServerConfig(registry, "", "");
+        // MFA derivation OFF (false, default 10m window) — matches the dark default.
+        TenancyResourceServerConfig tenancy =
+                new TenancyResourceServerConfig(registry, "", "", false, 600_000L);
         ReactiveAuthenticationManagerResolver<ServerWebExchange> resolver =
-                tenancy.tenantAuthManagerResolver();
+                TenancyResolvers.tenantResolver(tenancy);
 
         client = sliceClient(registry, provider(resolver), new AuthoritiesController());
     }

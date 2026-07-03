@@ -49,7 +49,7 @@ class SecurityConfigSpecPathsTest {
 
     @Nested
     @WebFluxTest(controllers = SpecProbes.class)
-    @Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class})
+    @Import({SecurityConfig.class, systems.snapdragon.commons.security.DomainRegistry.class})
     @ActiveProfiles("dev")
     class DevProfile {
 
@@ -72,7 +72,7 @@ class SecurityConfigSpecPathsTest {
 
     @Nested
     @WebFluxTest(controllers = SpecProbes.class)
-    @Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class})
+    @Import({SecurityConfig.class, systems.snapdragon.commons.security.DomainRegistry.class})
     class ProdProfile {
 
         @org.springframework.beans.factory.annotation.Autowired

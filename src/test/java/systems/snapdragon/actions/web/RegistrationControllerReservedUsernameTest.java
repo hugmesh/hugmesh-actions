@@ -29,7 +29,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  * {@code mockJwt()}; CSRF is disabled so the POST needs no token.
  */
 @WebFluxTest(controllers = RegistrationController.class)
-@Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class})
+@Import({SecurityConfig.class, systems.snapdragon.commons.security.DomainRegistry.class})
 class RegistrationControllerReservedUsernameTest {
 
     @Autowired WebTestClient client;

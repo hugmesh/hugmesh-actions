@@ -43,7 +43,7 @@ class Probes {
  * exercises only the security rules, not the grant-action wiring.
  */
 @WebFluxTest(controllers = Probes.class)
-@Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class})
+@Import({SecurityConfig.class, systems.snapdragon.commons.security.DomainRegistry.class})
 class SecurityConfigPathRulesTest {
 
     @org.springframework.beans.factory.annotation.Autowired

@@ -16,7 +16,9 @@ import org.springframework.security.oauth2.server.resource.authentication.Reacti
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
-import systems.snapdragon.actions.security.DomainRegistry;
+import systems.snapdragon.commons.config.TenancyResourceServerConfig;
+import systems.snapdragon.commons.security.CasdoorAuthorities;
+import systems.snapdragon.commons.security.DomainRegistry;
 
 /**
  * Reactive Spring Security for snapdragon-actions.

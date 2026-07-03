@@ -32,7 +32,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
  * filter chain, not the grant-action wiring.
  */
 @WebFluxTest(controllers = Probes.class)
-@Import({SecurityConfig.class, systems.snapdragon.actions.security.DomainRegistry.class})
+@Import({SecurityConfig.class, systems.snapdragon.commons.security.DomainRegistry.class})
 class SecurityConfigHeadersSliceTest {
 
     @org.springframework.beans.factory.annotation.Autowired

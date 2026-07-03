@@ -5,7 +5,8 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import reactor.core.publisher.Flux;
-import systems.snapdragon.actions.security.DomainRegistry;
+import systems.snapdragon.commons.security.CasdoorAuthorities;
+import systems.snapdragon.commons.security.DomainRegistry;
 
 import java.time.Instant;
 import java.util.List;
@@ -27,9 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class SecurityConfigConverterTest {
 
-    /** No-config registry: empty issuer-uri / issuers / hosts -> single-issuer mode,
+    /** No-config registry: empty issuer-uri / issuers -> single-issuer mode,
      *  so {@code domainOf(anything)} is {@code "default"}. */
-    private static final DomainRegistry REGISTRY = new DomainRegistry("", "", "");
+    private static final DomainRegistry REGISTRY = new DomainRegistry("", "");
 
     private static final String DOMAIN_DEFAULT = "DOMAIN_default";
 

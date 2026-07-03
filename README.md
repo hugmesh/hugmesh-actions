@@ -445,14 +445,27 @@ the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
 `springdoc.api-docs.version: openapi_3_0` so the published spec stays OpenAPI
 3.0 for ng-openapi-gen 0.51.0). The Boot-4 WebFlux JSON codec is Jackson 3.
 
-**Remaining follow-up:** this service still inherits
-`spring-boot-starter-parent` **directly** rather than consuming
-`snapdragon-parent` (metapom 2.7.0) or `snapdragon-commons` (2.7.0) — whereas
-the rest of the Java estate (e.g. `federation-api`) runs on
-`snapdragon-parent` + `snapdragon-commons`. The `CasdoorAuthorities` / `Roles`
-/ `DomainRegistry` classes here are still local copies rather than
-`systems.snapdragon.commons.*` imports; adopting the metapom + commons is the
-outstanding consolidation step.
+**Commons adoption (✅ done — metapom parent deliberately NOT adopted):** the
+local `CasdoorAuthorities` / `DomainRegistry` copies are retired in favour of
+`systems.snapdragon.commons.security.*` imports (via a `CommonsSecurityConfig`
+`@Import`, the same recipe `federation-api` uses), removing the byte-for-byte
+converter-drift risk between this service and the gateway/BFFs. `Roles` is
+also retired onto `commons.security.Roles`, EXCEPT `isGameMaster` /
+`usernameOf(Jwt)` / `namesOf(...)`, which commons does not carry and which had
+zero production call sites here (dropped, not ported). `pom.xml` still
+inherits `spring-boot-starter-parent` **directly** rather than
+`snapdragon-parent` (the metapom itself) — a live trial showed the metapom's
+shared `<dependencies>` block forces `spring-boot-starter-data-r2dbc` /
+`r2dbc-postgresql` / `postgresql` / `liquibase-core` / `spring-jdbc` onto every
+child, which for this "INTENTIONALLY stateless... No local DB" service (see
+`SnapdragonActionsApplication`'s own javadoc) would auto-configure an R2DBC
+`ConnectionFactory` bean with no `spring.r2dbc.*` configured and fail to
+**start** in production. `snapdragon-commons:2.0.0` is instead a direct, pinned
+dependency with `<exclusions>` stripping those same DB artifacts (commons
+carries them transitively via its own `snapdragon-parent` ancestry) — every
+other commons transitive (security / oauth2-resource-server / validation /
+springdoc) is already declared explicitly above at the same Boot-4-BOM-managed
+version, so excluding those too is a no-op dedupe, not a footprint change.
 
 ## Roadmap
 
@@ -460,12 +473,14 @@ Platform-wide, designed-or-in-flight initiatives, called out where they
 specifically touch this effector. Nothing below is a current capability
 on `main`.
 
-- **Adopt the unified Boot 4 baseline (🔭 follow-up).** Migrate `pom.xml`
-  to `snapdragon-parent` (Boot 4.0.7 / Spring Cloud 2025.1.2) and fold the
-  local `CasdoorAuthorities` / `Roles` / `DomainRegistry` copies onto the
-  shared `snapdragon-commons` (`systems.snapdragon.commons.*`) security/
-  tenancy types — bringing this repo in line with the already-migrated
-  services and removing the byte-for-byte-copy maintenance burden.
+- **✅ Adopt `snapdragon-commons` for the converter/registry/role types.** The
+  local `CasdoorAuthorities` / `DomainRegistry` / (most of) `Roles` copies are
+  folded onto `systems.snapdragon.commons.*`, removing the byte-for-byte-copy
+  maintenance burden. **NOT adopted:** `snapdragon-parent` as this repo's
+  actual Maven `<parent>` — live-verified to force a DB dependency stack
+  (`r2dbc`/`postgresql`/`liquibase`) onto this stateless, DB-less service that
+  would fail to start in production; `snapdragon-commons` is instead a direct
+  pinned dependency with `<exclusions>` (see *Baseline* above).
 - **Casdoor MFA / step-up (🔭 endpoint guard planned).** WebAuthn + TOTP +
   recovery, per-role defaults, `amr`/`acr` → `MFA_SATISFIED`. The
   `MFA_SATISFIED` converter parity already **ships dark** here (behind

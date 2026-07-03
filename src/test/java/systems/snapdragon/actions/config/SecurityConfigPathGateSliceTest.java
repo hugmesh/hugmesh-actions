@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
-import systems.snapdragon.actions.security.DomainRegistry;
 import systems.snapdragon.actions.testsupport.TestIssuer;
+import systems.snapdragon.commons.config.TenancyResolvers;
+import systems.snapdragon.commons.config.TenancyResourceServerConfig;
+import systems.snapdragon.commons.security.DomainRegistry;
 
 import java.util.List;
 
@@ -54,10 +56,11 @@ class SecurityConfigPathGateSliceTest extends SecuritySliceSupport {
         issuer = new TestIssuer();
         issuer2 = new TestIssuer();
         String issuersCsv = issuer.issuerUri() + "=brandx," + issuer2.issuerUri() + "=brandy";
-        DomainRegistry registry = new DomainRegistry(issuer.issuerUri(), issuersCsv, "");
-        TenancyResourceServerConfig tenancy = new TenancyResourceServerConfig(registry, "", "");
+        DomainRegistry registry = new DomainRegistry(issuer.issuerUri(), issuersCsv);
+        TenancyResourceServerConfig tenancy =
+                new TenancyResourceServerConfig(registry, "", "", false, 600_000L);
         ReactiveAuthenticationManagerResolver<ServerWebExchange> resolver =
-                tenancy.tenantAuthManagerResolver();
+                TenancyResolvers.tenantResolver(tenancy);
         client = sliceClient(registry, provider(resolver), new ProbeController());
     }
 
