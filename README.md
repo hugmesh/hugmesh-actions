@@ -244,13 +244,13 @@ order:
 1. **Local reserved-username gate** (runs unconditionally) — rejects
    `422` any username that, normalised to the vanity-subdomain DNS-label
    form, collides with a dedicated gateway route/prefix. The reserved
-   list (`ReservedNames`, currently **70 labels**) is the canonical union
+   list (`ReservedNames`, currently **77 labels**) is the canonical union
    of the fe-/be-gateway route prefixes, reserved subdomains, the
    app routes of the optional (opt-in, default-off) games service, and
    defensive infra names — **kept
    byte-for-byte in lockstep** with `snapdragon-gateway`'s `CanonicalSeed`
    and `snapdragon-admin-bff-api`'s copy (all three must agree on the same
-   70). This is defence-in-depth; Casdoor's own forbidden-username policy
+   77). This is defence-in-depth; Casdoor's own forbidden-username policy
    is the source gate.
 2. **Federation confusable / availability gate** (defence-in-depth,
    **config-gated, default off**) — when
@@ -318,7 +318,7 @@ extraction (shared account/session/MFA/Casdoor-admin infra, consumed by
 user-bff + admin-bff only) therefore **do not touch this repo's code** —
 it consumes neither. The one auth machinery it *does* share is the
 stateless JWT→authority converter (`CasdoorAuthorities`, copied from
-`snapdragon-gateway`) and the `ReservedNames` canonical-70 union (kept in
+`snapdragon-gateway`) and the `ReservedNames` canonical-77 union (kept in
 lockstep with `snapdragon-gateway` and `snapdragon-admin-bff-api`).
 
 ### Domain-scoping (issuer-keyed) — ✅ shipped

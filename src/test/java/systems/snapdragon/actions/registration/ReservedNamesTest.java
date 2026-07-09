@@ -73,14 +73,42 @@ class ReservedNamesTest {
         assertThat(ReservedNames.RESERVED).contains(label);
     }
 
+    /**
+     * The 7 labels backported to reach the canonical 77-label list (canonical
+     * revisions 4-6 of reserved-prefixes.yaml): {@code character-studio} (the
+     * Character Studio VN micro-frontend {@code /character-studio/**} fe-gateway
+     * route) and {@code v1} (the edge-AI analysis API {@code /v1/analyze/**}
+     * be-gateway route, canonical revision 4); {@code index.html},
+     * {@code favicon.ico}, {@code importmap.json}, {@code remoteentry.json} (the
+     * fe-gateway webroot static / module-federation manifest filenames, distinct
+     * literal first-segments from the already-reserved bare {@code favicon},
+     * canonical revision 5); and {@code ai} (the edge-AI inference tier's own
+     * reserved host {@code ai.snapdragon.systems}, canonical revision 6). A user
+     * must not be able to register any of these handles. {@code remoteentry.json}
+     * is stored lower-case (like every entry in this set) though the on-disk
+     * filename is {@code remoteEntry.json} — case-insensitive matching for that
+     * exact mixed-case literal is covered separately below.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "character-studio", "v1", "index.html", "favicon.ico",
+            "importmap.json", "remoteentry.json", "ai"})
+    void everyCanonicalRevision4To6LabelIsReserved(String label) {
+        assertThat(ReservedNames.isReserved(label)).isTrue();
+        assertThat(ReservedNames.RESERVED).contains(label);
+    }
+
     @Test
-    void reservedSetIsExactlyTheCanonical70Labels() {
+    void reservedSetIsExactlyTheCanonical77Labels() {
         // Guards against silent drift from the canonical reserved-prefixes.yaml
         // (and the federation/user-bff RESERVED_LABELS copies).
         // 62 -> 64: added `tube` + `games-instances-console`.
         // 64 -> 70: reconciled with the canonical YAML — added `superadmin`,
         // `_synapse`, `media`, `phpbb`, `owncast`, `wiki` (canonical revision 3).
-        assertThat(ReservedNames.RESERVED).hasSize(70);
+        // 70 -> 77: reconciled with the canonical YAML — added `character-studio`,
+        // `v1` (revision 4), `index.html`, `favicon.ico`, `importmap.json`,
+        // `remoteentry.json` (revision 5), and `ai` (revision 6).
+        assertThat(ReservedNames.RESERVED).hasSize(77);
     }
 
     @ParameterizedTest
@@ -96,7 +124,11 @@ class ReservedNamesTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "ADMIN", "Admin", "  Login  ", "GAMES", "Api"})
+            "ADMIN", "Admin", "  Login  ", "GAMES", "Api",
+            // remoteEntry.json is the actual mixed-case on-disk filename (stored
+            // lower-case as "remoteentry.json" in RESERVED); confirm the
+            // case-insensitive raw-form compare in isReserved() still catches it.
+            "remoteEntry.json", "RemoteEntry.JSON"})
     void reservedCheckIsCaseInsensitiveAndTrimmed(String label) {
         assertThat(ReservedNames.isReserved(label)).isTrue();
     }

@@ -62,10 +62,18 @@ public final class ReservedNames {
             // superadmin: TAILNET superadmin App-Store console route prefix
             // (/superadmin/appstore/** on the superadmin-gateway)
             "superadmin",
+            // character-studio: the Character Studio (VN) micro-frontend remote,
+            // served at /character-studio/** on the fe-gateway
+            // (apps/20-gateway-fe.yaml route[character-studio-ui].path)
+            "character-studio",
             // be-gateway route prefixes + publicly-routable homeserver surfaces
             // (_synapse: /_synapse/** Matrix Synapse-compat; media: /media/** Mastodon)
             "api", "_matrix", "matrix", "_synapse", "media", "mastodon", "pleroma",
             "forum", "phpbb", "oauth", "oauth2",
+            // edge-AI routes: ai.snapdragon.systems (the edge-AI inference tier
+            // host, route[edge-ai].host) + /v1/analyze/** (the edge-AI analysis
+            // API path, route[edge-ai-analysis].path, both apps/20-gateway-be.yaml)
+            "ai", "v1",
             // optional-service route prefixes / reserved subdomains: LocalTube
             // (/tube/content/** route-access seed) + the optional video/wiki services
             // (owncast/wiki ride /bff/** + /social/wiki/**; reserved so a vanity
@@ -78,6 +86,13 @@ public final class ReservedNames {
             "actuator", "metrics", "well-known", "favicon", "robots",
             "sitemap", "status", "support", "help", "social", "gm",
             "pki", "vault", "argocd", "gitlab", "registry",
+            // FE webroot static / module-federation manifest filenames (fe-gateway
+            // anonymous-SPA-shell rows, distinct literal first-segments from the
+            // already-reserved bare "favicon" label above). Stored lower-case
+            // (like every other entry here) though the canonical spec/on-disk
+            // filename is "remoteEntry.json" — this set's match is documented
+            // case-insensitive and isReserved() always lower-cases the candidate.
+            "index.html", "favicon.ico", "importmap.json", "remoteentry.json",
             // snapdragon.GAMES app route prefixes (derived: nginx /_remotes/<slug>/
             // + location prefixes + <service>.snapdragon.games subdomains)
             "games", "play", "wasm", "wasm-fragment", "producer",
@@ -120,9 +135,17 @@ public final class ReservedNames {
      * regardless of how the raw label was punctuated. {@code _matrix} and
      * {@code _fragments} also have bare cores ({@code matrix}/{@code fragments})
      * in the set; {@code _remotes} does not, so the underscore-re-prefixed
-     * compare is what catches it.
+     * compare is what catches it. Also compares the raw trimmed/lower-cased
+     * form BEFORE normalisation, so an exact dotted literal — {@code
+     * index.html}, {@code favicon.ico}, {@code importmap.json}, {@code
+     * remoteEntry.json} — still matches; {@link #normalize(String)} collapses
+     * the {@code .} to {@code -} like any other separator, so the normalised
+     * form alone would never equal one of those literal reserved entries.
      */
     public static boolean isReserved(String username) {
+        if (username == null) return false;
+        String raw = username.trim().toLowerCase();
+        if (RESERVED.contains(raw)) return true;
         String n = normalize(username);
         if (n.isEmpty()) return false;
         if (RESERVED.contains(n)) return true;
