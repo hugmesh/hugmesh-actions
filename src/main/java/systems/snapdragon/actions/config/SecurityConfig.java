@@ -29,7 +29,7 @@ import systems.snapdragon.commons.security.DomainRegistry;
  *   <li>{@code /actuator/health} + {@code /actuator/info} — public
  *       (Kubernetes / Docker probes).</li>
  *   <li>{@code /actuator/**} — restricted to {@code ROLE_GAME-MASTER}.
- *       Same policy snapdragon-gateway / snapdragon-id-gateway /
+ *       Same policy snapdragon-gateway (fe/be/pki) /
  *       snapdragon.games BFF enforce so cluster state / metrics /
  *       Casdoor reachability never leak.</li>
  *   <li>{@code /api/registration/**} — restricted to

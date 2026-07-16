@@ -45,6 +45,15 @@ import java.util.Set;
  * {@code snapdragon-admin-bff-api} ({@code ReservedNames}); the two copies
  * MUST be kept identical. When a new dedicated route prefix is added to the
  * gateway, add its first path segment here (and there).
+ *
+ * <p>TODO: this is one of 3 independent hand-synced physical copies of the
+ * canonical {@code specs/cluster/reserved-prefixes.yaml} list across the
+ * platform (this repo, {@code snapdragon-federation-api}, and the shared
+ * {@code snapdragon-auth-core} library consumed by user-bff/admin-bff) — a
+ * missed sync is a real reserved-username enforcement gap (happened once
+ * already; fixed in #42). A durable fix is to generate this set from the
+ * canonical YAML at build time instead of hand-copying it. Cross-repo,
+ * not a quick local patch — not done here.
  */
 public final class ReservedNames {
 

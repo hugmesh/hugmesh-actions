@@ -32,12 +32,13 @@ import systems.snapdragon.actions.sync.GitHubOrgAdminGrantAction;
  * or returns 403 with the boilerplate message the SPA shows to the
  * user.
  *
- * <p>Authentication: this controller is invoked from another
- * Snapdragon backend service (the registration remote's BFF) over
- * an internal network, so it doesn't gate on a JWT — the upstream
- * has already validated the user's external token. In production
- * this is fronted by snapdragon-id-gateway which restricts the path
- * to internal callers via SecurityConfig.
+ * <p>Authentication: {@code /api/registration/**} requires a valid Casdoor
+ * JWT carrying {@code ROLE_ADMIN} (see {@code SecurityConfig}) — this
+ * controller does NOT skip the OAuth2-resource-server gate. In production
+ * the only caller that reaches this path with such a token is
+ * snapdragon-be-gateway, proxying the registration remote's BFF request; an
+ * external caller without an admin-scoped token is rejected by the resource
+ * server before this method ever runs.
  *
  * <p><b>Reserved-username gate.</b> This is the FIRST point the platform
  * sees the username chosen during the external-OAuth signup (Casdoor mints
@@ -195,7 +196,7 @@ public class RegistrationController {
             msg.append(": it collides with an existing or reserved name");
         }
         msg.append(". Choose another username.");
-        return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, msg.toString());
+        return new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, msg.toString());
     }
 
     /**
@@ -206,7 +207,7 @@ public class RegistrationController {
      */
     private static void rejectReservedUsername(String snapdragonUsername) {
         if (ReservedNames.isReserved(snapdragonUsername)) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT,
                     "username '" + snapdragonUsername + "' is reserved: it collides with a "
                     + "dedicated platform route/prefix (normalised label '"
                     + ReservedNames.normalize(snapdragonUsername) + "'). Choose another username.");

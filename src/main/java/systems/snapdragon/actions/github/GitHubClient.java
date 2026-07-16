@@ -27,11 +27,12 @@ import java.util.Set;
  * </ul>
  *
  * <p>Auth: GitHub Bearer token (the OAuth access_token from the
- * federated registration flow). The token comes from the
- * snapdragon.games registration remote — see the
- * "External OAuth registration" roadmap item — or from a
- * one-shot service-account PAT when running the scheduled
- * reconciliation.
+ * federated registration flow), forwarded by the snapdragon.games
+ * registration remote at sign-up. There is no service-account view of
+ * another user's private org/repo admin reach, so the scheduled
+ * reconciler replays the SAME user-specific token, cached by
+ * {@code GitHubTokenCache} after the sign-up call — see that class's
+ * javadoc.
  */
 public class GitHubClient {
 

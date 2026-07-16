@@ -15,8 +15,10 @@
 # Java/Maven dependency-check: fail the local build only on a critical (CVSS>=9)
 # finding so `make pentest` is a usable pre-push gate (CI uses --failOnCVSS 7).
 SCA_FAIL_CVSS ?= 9
-# Pin the same JDK image the CI `test` job uses so the local scan matches CI.
-JDK_IMAGE ?= eclipse-temurin:21-jdk-noble
+# Pin the same JDK image the CI `test` job uses so the local scan matches CI
+# (.gitlab-ci.yml's `test` job; also the pom.xml java.version / Dockerfile
+# build stage — this project is Java 25 only, a 21 image fails the build).
+JDK_IMAGE ?= eclipse-temurin:25-jdk-noble
 # Where the DAST harness lives. If the generator repo is checked out next to this
 # one (the Snapdragon-Systems org layout), it is found automatically; otherwise
 # point PENTEST_HARNESS_DIR at a checkout, or the target prints the clone command.

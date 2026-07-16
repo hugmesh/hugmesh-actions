@@ -185,6 +185,38 @@ Each tick:
    lost-update race that a per-user read-modify-write would have. An
    empty loser set writes nothing.
 
+```mermaid
+sequenceDiagram
+    participant R as GitHubOrgAdminReconcileAction
+    participant C as GitHubTokenCache
+    participant GH as GitHub API
+    participant CD as systems Casdoor
+
+    R->>CD: getRoleMembers(systems-admin)
+    CD-->>R: current admin members
+
+    loop Phase 1 - read-only scan (max 4 concurrent), each admin
+        R->>C: get(username)
+        alt fresh token cached
+            R->>GH: replay token (org-admin / repo-admin check)
+            GH-->>R: reach (orgs) or error
+        else no fresh token
+            Note over R: skip - no evidence either way
+        end
+    end
+
+    Note over R: collect usernames whose reach genuinely<br/>dropped to zero (GitHub errors also skipped,<br/>never treated as evidence to revoke)
+
+    alt loser set non-empty
+        Note over R,CD: Phase 2 - single serialized write
+        R->>CD: getRoleMembers -> removeAll(losers) -> setRoleMembers
+        CD-->>R: ok
+        R->>C: evict(revoked usernames)
+    else loser set empty
+        Note over R: no-op tick - zero writes
+    end
+```
+
 The loop is **prune-only** (it only ever removes admin, never grants)
 and **idempotent** (a tick where everyone still has reach is a pure read
 with zero writes). The token cache is process-local and best-effort:
@@ -384,7 +416,8 @@ capability on `main`.
 
 ## Current State
 
-*(as of 2026-06-25)*
+*(as of 2026-07-16 — includes the reserved-name canonical-77 sync in #42
+and the GitHub-org-admin opt-in work through #38)*
 
 **Shipped & active on `main`:**
 
@@ -409,7 +442,7 @@ capability on `main`.
   🔭 planned (the `ROLE_ADMIN` endpoint authorizes on `ROLE_ADMIN` alone).
 - Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
   `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
-  `iss`), reserved-username gate (canonical 70 labels, in lockstep with
+  `iss`), reserved-username gate (canonical 77 labels, in lockstep with
   `snapdragon-gateway` + `snapdragon-admin-bff-api`), the config-gated
   federation confusable gate, SpringDoc/Swagger surface, and the GitLab
   three-stage CI pipeline (test → build:image → pentest).
