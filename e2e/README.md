@@ -1,11 +1,11 @@
-# snapdragon-actions e2e suite
+# hugmesh-actions e2e suite
 
 End-to-end tests using Playwright and playwright-bdd. The suite has
 two concerns:
 
 1. **Cross-stack admin sync** — verifies that granting or revoking the
    `game-master` role in the *systems* Casdoor instance propagates
-   correctly to the *games* Casdoor instance via `snapdragon-actions`,
+   correctly to the *games* Casdoor instance via `hugmesh-actions`,
    and that Prometheus counters reflect each outcome.
 2. **Per-role access matrix** — locks in the `SecurityConfig`
    path-matchers by hitting protected endpoints as each role tier and
@@ -34,7 +34,7 @@ e2e/
 Run all commands from the repository root.
 
 ```bash
-# 1. Start casdoor-systems, casdoor-games, and snapdragon-actions via Docker Compose.
+# 1. Start casdoor-systems, casdoor-games, and hugmesh-actions via Docker Compose.
 bash e2e/scripts/bring-up-stack.sh
 
 # 2. Install dependencies and run the full BDD suite.
@@ -53,14 +53,14 @@ bash e2e/scripts/bring-up-stack.sh stop
 ### `cross-stack-admin-sync.feature` (3 scenarios)
 
 Each scenario drives the full sync loop: it seeds state in both
-Casdoor instances, triggers a sync tick in `snapdragon-actions`, then
+Casdoor instances, triggers a sync tick in `hugmesh-actions`, then
 asserts both the Casdoor side-effect and the Prometheus counter.
 
 ```mermaid
 sequenceDiagram
     participant T as Test (step)
     participant S as casdoor-systems
-    participant A as snapdragon-actions
+    participant A as hugmesh-actions
     participant G as casdoor-games
     participant P as /actuator/metrics
 
@@ -228,6 +228,6 @@ It looks for tokens in the following order:
   fires every 60 s, which reads as a likely source of flakes/failures
   in `cross-stack-admin-sync.feature` rather than the documented
   guaranteed tick crossing. Either add the missing compose override (set
-  `GM_SYNC_INTERVAL_MS=2000` on the `snapdragon-actions` service for the
+  `GM_SYNC_INTERVAL_MS=2000` on the `hugmesh-actions` service for the
   e2e stack) or raise the helper's default/timeout to match the real
   60 s interval.

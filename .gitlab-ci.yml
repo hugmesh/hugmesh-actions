@@ -1,4 +1,4 @@
-# Snapdragon CI — build + push this service's container image to the in-cluster
+# HugMesh CI — build + push this service's container image to the in-cluster
 # GitLab container registry. The GitHub repo is pull-mirrored into in-cluster
 # GitLab (mirror_trigger_builds=true), so this runs on push / mirror-sync on the
 # privileged x86 runner (shell executor with docker, matching the generator CI).
@@ -7,9 +7,9 @@
 # Pull in the centralized OWASP pen-test stage (hidden `.pentest-*` jobs) from the
 # generator repo so this repo shares ONE source of truth for SCA + DAST. The thin
 # `pentest:*` jobs below `extends:` those hidden jobs. See memory
-# snapdragon-pentest-standard ("a stage in every ArgoCD-onboarded repo's pipeline").
+# hugmesh-pentest-standard ("a stage in every ArgoCD-onboarded repo's pipeline").
 include:
-  - project: 'Snapdragon-Systems/snapdragon-generator'
+  - project: 'HugMesh/hugmesh-generator'
     ref: main
     file: '/tests/pentest/ci/pentest-stage.gitlab-ci.yml'
 
@@ -17,7 +17,7 @@ stages: [test, build, pentest]
 
 test:
   stage: test
-  tags: [snapdragon-x86, privileged]
+  tags: [hugmesh-x86, privileged]
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -34,7 +34,7 @@ test:
 
 build:image:
   stage: build
-  tags: [snapdragon-x86, privileged]
+  tags: [hugmesh-x86, privileged]
   needs: [test]
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

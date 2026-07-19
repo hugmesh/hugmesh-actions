@@ -7,7 +7,7 @@
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
 		<!-- 4.0.7 brings this service onto the fleet's Boot-4 baseline (the fleet
-		     runs Spring Boot 4.0.7 via snapdragon-parent 2.0.0; this service tracks
+		     runs Spring Boot 4.0.7 via hugmesh-parent 2.0.0; this service tracks
 		     the same Boot version directly). Boot 4 = Spring Framework 7 + Spring
 		     Security 7 + the Jackson-3 WebFlux codec; the resilience4j + springdoc
 		     deps below are bumped to their Boot-4-compatible lines accordingly. -->
@@ -15,11 +15,11 @@
 		<relativePath/>
 	</parent>
 
-	<groupId>systems.snapdragon</groupId>
-	<artifactId>snapdragon-actions</artifactId>
+	<groupId>systems.hugmesh</groupId>
+	<artifactId>hugmesh-actions</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>snapdragon-actions</name>
-	<description>Snapdragon platform-wide scheduled actions (cross-stack role sync, audit log, …)</description>
+	<name>hugmesh-actions</name>
+	<description>HugMesh platform-wide scheduled actions (cross-stack role sync, audit log, …)</description>
 
 	<properties>
 		<java.version>25</java.version>
@@ -144,40 +144,40 @@
 			<scope>test</scope>
 		</dependency>
 
-		<!-- snapdragon-commons — the shared, canonical Casdoor JWT authorities converter
+		<!-- hugmesh-commons — the shared, canonical Casdoor JWT authorities converter
 		     (CasdoorAuthorities), issuer->domain registry (DomainRegistry) and role
 		     helpers (Roles) the rest of the fleet (federation-api, admin-bff, user-bff)
 		     already consumes. Adopting it here retires this service's local COPIES of
 		     those three classes (config.CasdoorAuthorities, security.DomainRegistry,
 		     security.Roles — each explicitly documented as "COPIED from
-		     snapdragon-gateway" / "MIRROR of the gateway's registry") so a future
+		     hugmesh-gateway" / "MIRROR of the gateway's registry") so a future
 		     platform-wide authority-shape change can no longer drift between the
 		     gateway/BFFs and this copy (the "converter-drift risk" the README's
 		     Remaining-follow-up section named).
 
 		     Depends on the artifact DIRECTLY (pinned <version>, not parent-managed):
-		     this service deliberately does NOT adopt snapdragon-parent as its Maven
+		     this service deliberately does NOT adopt hugmesh-parent as its Maven
 		     <parent> (kept on spring-boot-starter-parent:4.0.7 directly, unchanged) —
 		     a live trial showed the metapom's shared <dependencies> block forces
 		     spring-boot-starter-data-r2dbc / r2dbc-postgresql / postgresql /
 		     liquibase-core / spring-jdbc onto every child, which for this service (which
-		     is, per SnapdragonActionsApplication's own javadoc, "INTENTIONALLY
+		     is, per HugMeshActionsApplication's own javadoc, "INTENTIONALLY
 		     stateless... No local DB") auto-configures an R2DBC ConnectionFactory bean
 		     with no spring.r2dbc.* configured — the app would fail to START in
 		     production (not merely fail a test; this service has no @SpringBootTest to
 		     catch it). 2.0.0 is the REAL published commons coordinate (see
-		     user-bff-api's pom.xml comment on the same point); snapdragon-parent's own
+		     user-bff-api's pom.xml comment on the same point); hugmesh-parent's own
 		     dependencyManagement entry for it is also 2.0.0 despite the metapom's OWN
 		     version being 2.7.0. The <exclusions> strip exactly those DB artifacts (which
-		     commons carries transitively via its own snapdragon-parent ancestry) — every
+		     commons carries transitively via its own hugmesh-parent ancestry) — every
 		     other commons transitive (security / oauth2-resource-server / validation /
 		     springdoc) is a dependency this service already declares explicitly above at
 		     the same Boot-4-BOM-managed version, so leaving those unexcluded is a no-op
 		     dedupe, not a footprint change. -->
 		<dependency>
-			<groupId>systems.snapdragon</groupId>
-			<artifactId>snapdragon-commons</artifactId>
-			<version>2.0.0</version>
+			<groupId>systems.hugmesh</groupId>
+			<artifactId>hugmesh-commons</artifactId>
+			<version>2.1.0</version>
 			<exclusions>
 				<exclusion>
 					<groupId>org.springframework.boot</groupId>
@@ -214,7 +214,7 @@
 			     contributed by the spring-boot-starter-parent `native`
 			     profile's pluginManagement (id=native); declaring the
 			     plugin here activates those bindings when the build runs
-			     with `-Pnative`. Mirrors snapdragon-gateway/pom.xml. -->
+			     with `-Pnative`. Mirrors hugmesh-gateway/pom.xml. -->
 			<plugin>
 				<groupId>org.graalvm.buildtools</groupId>
 				<artifactId>native-maven-plugin</artifactId>

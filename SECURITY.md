@@ -1,9 +1,9 @@
-# Security — snapdragon-actions
+# Security — hugmesh-actions
 
-> In-cluster this service is deployed under the name **`snapdragon-api`**
-> (`snapdragon-generator/specs/cluster/manifests/snapdragon-apis/deployment.yaml`
-> runs the actions image as `snapdragon-api`), so its mTLS identity is the
-> `snapdragon-api-mtls` ESO Secret.
+> In-cluster this service is deployed under the name **`hugmesh-api`**
+> (`hugmesh-generator/specs/cluster/manifests/hugmesh-apis/deployment.yaml`
+> runs the actions image as `hugmesh-api`), so its mTLS identity is the
+> `hugmesh-api-mtls` ESO Secret.
 
 ## Authentication layers
 
@@ -23,9 +23,9 @@ This service is defended in depth by two independent layers:
 
 ## How the mTLS layer is wired
 
-The cluster CA is the offline root from `snapdragon-generator/scripts/gen-keystores.sh`.
+The cluster CA is the offline root from `hugmesh-generator/scripts/gen-keystores.sh`.
 In-cluster, Vault PKI imports that CA and issues a short-lived leaf cert per app;
-External Secrets Operator (ESO) syncs it into the `snapdragon-api-mtls`
+External Secrets Operator (ESO) syncs it into the `hugmesh-api-mtls`
 `kubernetes.io/tls` Secret (`tls.crt` / `tls.key` / `ca.crt`). A keystore
 initContainer (the equivalent of the gateway chart's `build-keystore`) assembles:
 
@@ -37,7 +37,7 @@ a Secret, or Vault). The deployment then sets the env below so the running pod
 enforces client-cert verification. Because every in-cluster leaf chains to the same
 cluster CA, the truststore validates them; ESO rotates the cert before expiry.
 
-The gateway (`snapdragon-be-gateway`) is the legitimate caller: it presents its own
+The gateway (`hugmesh-be-gateway`) is the legitimate caller: it presents its own
 ESO-issued client cert when proxying to this API, so its handshake succeeds while
 everyone else's fails.
 
@@ -62,13 +62,13 @@ existing tests run unchanged. `client-auth` maps to Netty's `ClientAuth`:
 `none → NONE`, `want → OPTIONAL`, `need → REQUIRE`. WebFlux/Netty reads these
 properties directly; no custom `SslContext`/`HttpServer` bean is needed.
 
-## Deployment requirement (owned by snapdragon-generator)
+## Deployment requirement (owned by hugmesh-generator)
 
-The deployment manifest for this service lives in `snapdragon-generator`
-(`specs/cluster/manifests/snapdragon-apis/deployment.yaml`, name `snapdragon-api`),
+The deployment manifest for this service lives in `hugmesh-generator`
+(`specs/cluster/manifests/hugmesh-apis/deployment.yaml`, name `hugmesh-api`),
 not in this repo. To turn enforcement on, that deployment must (a) add the keystore
-initContainer + `pki` (from `snapdragon-api-mtls`) and `stores` (tmpfs) volumes —
-exactly as `charts/snapdragon-gateway/templates/deployment.yaml` does — and (b) set:
+initContainer + `pki` (from `hugmesh-api-mtls`) and `stores` (tmpfs) volumes —
+exactly as `charts/hugmesh-gateway/templates/deployment.yaml` does — and (b) set:
 
 ```
 SSL_ENABLED=true

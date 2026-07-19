@@ -1,7 +1,7 @@
-# snapdragon-actions
+# hugmesh-actions
 
 Reactive Spring (WebFlux, Java 25, `@EnableScheduling`) service that runs
-the Snapdragon platform's **cross-stack role-reconciliation** jobs and
+the HugMesh platform's **cross-stack role-reconciliation** jobs and
 hosts the **registration org-admin grant** endpoint. Stateless by
 design — every scheduled tick reads source-of-truth from the canonical
 Casdoor instances (and GitHub) and reconciles the downstream
@@ -14,24 +14,24 @@ losing it on a restart only delays an auto-revoke).
 | | |
 |---|---|
 | **Tier** | Backend effector / reconciler — talks to Casdoor admin APIs + GitHub; not a user-facing UI. |
-| **In-cluster identity** | Deployed under the name **`snapdragon-api`** (its mTLS identity is the `snapdragon-api-mtls` ESO Secret). The deployment manifest lives in `snapdragon-generator` (`specs/cluster/manifests/snapdragon-apis/`), not in this repo. See [SECURITY.md](SECURITY.md). |
+| **In-cluster identity** | Deployed under the name **`hugmesh-api`** (its mTLS identity is the `hugmesh-api-mtls` ESO Secret). The deployment manifest lives in `hugmesh-generator` (`specs/cluster/manifests/hugmesh-apis/`), not in this repo. See [SECURITY.md](SECURITY.md). |
 | **Port** | `8090` local/dev (env `PORT`); the in-cluster deployment maps it to `8080`. |
-| **Fronted by** | `snapdragon-be-gateway` — the legitimate caller of `/api/registration/**`; an external client never reaches this API directly. |
-| **Trusts** | The **snapdragon.systems Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
+| **Fronted by** | `hugmesh-be-gateway` — the legitimate caller of `/api/registration/**`; an external client never reaches this API directly. |
+| **Trusts** | The **hugmesh.systems Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
 
 The reconcilers in this service are what make two platform invariants
 self-healing rather than sign-in-only: a `game-master` on
-snapdragon.systems automatically becomes an `admin` in the **optional,
+hugmesh.systems automatically becomes an `admin` in the **optional,
 opt-in games realm** (the games service is OFF by default and only
 present when the build is generated with `--enable-games`), and a
 platform admin who loses their GitHub org-admin reach automatically
-loses snapdragon.systems admin.
+loses hugmesh.systems admin.
 
 ```mermaid
 flowchart LR
-    GW["snapdragon-be-gateway<br/>(mTLS client cert)"] -->|"POST /api/registration/**<br/>ROLE_ADMIN JWT"| API
+    GW["hugmesh-be-gateway<br/>(mTLS client cert)"] -->|"POST /api/registration/**<br/>ROLE_ADMIN JWT"| API
 
-    subgraph API["snapdragon-actions (snapdragon-api)"]
+    subgraph API["hugmesh-actions (hugmesh-api)"]
         RC["RegistrationController"]
         GM["GameMasterAdminSyncAction<br/>@Scheduled 60s"]
         REV["GitHubOrgAdminReconcileAction<br/>@Scheduled 6h"]
@@ -40,10 +40,10 @@ flowchart LR
         RC --> GHA
     end
 
-    SC["snapdragon.systems Casdoor<br/>(canonical JWT issuer)"]
+    SC["hugmesh.systems Casdoor<br/>(canonical JWT issuer)"]
     GC["games Casdoor<br/>(optional service, opt-in)"]:::optional
     GH["GitHub API"]
-    BFF["snapdragon-admin-bff-api<br/>(internal first-login hook<br/>X-Internal-Token + mTLS)"]
+    BFF["hugmesh-admin-bff-api<br/>(internal first-login hook<br/>X-Internal-Token + mTLS)"]
 
     GM -->|"read game-master / write admin"| SC
     GM -->|"write games admin<br/>(when games enabled)"| GC
@@ -72,7 +72,7 @@ support already ships dark on `main`, see Current State).
 
 ### `GameMasterAdminSyncAction` — systems game-master → games admin
 
-> Role-gated and tied to the **optional games service** (Snapdragon Game
+> Role-gated and tied to the **optional games service** (HugMesh Game
 > Studio), which is OFF by default and only enabled when a build is
 > generated with `--enable-games` / `ENABLE_GAMES=true`. When games is
 > not deployed this reconciler simply has no games Casdoor to write to;
@@ -80,13 +80,13 @@ support already ships dark on `main`, see Current State).
 > admin/superadmin holding the `game-master` role into the games realm as
 > a games admin.
 
-Propagates the `game-master` role from snapdragon.systems Casdoor into
+Propagates the `game-master` role from hugmesh.systems Casdoor into
 the `admin` role on the games Casdoor. Scheduled every
 `app.actions.game-master-sync.interval-ms` (default **60 s**).
 
 Each tick reads both role memberships, computes the desired games-admin
 set by rewriting every systems member's `<org>/<username>` identifier to
-the games organization (`snapdragon-systems/alice` →
+the games organization (`hugmesh-systems/alice` →
 `threewizards/alice`), and POSTs the new membership to games Casdoor
 **only when it actually differs**. Idempotent (a no-change tick writes
 nothing) and stateless. The per-Casdoor side-effect is wrapped in a
@@ -107,16 +107,16 @@ opens the breaker and the next tick retries instead of piling up work.
 > (`actions.notify.skipped` counts every call) — the reconciler's write
 > behaviour is bit-for-bit unchanged and **nothing writes
 > `user_notifications`**. This is the platform's declared "first caller"
-> of notifications v1 (snapdragon-user-bff-api `#72`): until this flag
+> of notifications v1 (hugmesh-user-bff-api `#72`): until this flag
 > flips in-cluster, the notifications floor exists but stays empty.
 
 After a **confirmed** games-admin membership write, every added/removed
 member is notified (best-effort — a notification hiccup never fails the
 sync tick) via `POST /bff/user/internal/notifications` on
-snapdragon-user-bff-api, using a Casdoor `ROLE_SERVICE` client-credentials
+hugmesh-user-bff-api, using a Casdoor `ROLE_SERVICE` client-credentials
 bearer (same mint+cache the federation username client uses). The target
 user's JWT subject is resolved from their username against the
-**snapdragon.systems** Casdoor (`CasdoorClient#getUserId` —
+**hugmesh.systems** Casdoor (`CasdoorClient#getUserId` —
 `GET /api/get-user`; login identity always lives in systems regardless of
 which org's role changed). An unresolvable username is skipped and
 counted, never guessed.
@@ -139,12 +139,12 @@ later genuine re-grant/re-revoke of the same role still notifies).
 > seeded. Superadmin opts in by setting the env var and rolling the pod;
 > everything below describes the **enabled** behaviour.
 
-Auto-grants snapdragon.systems `admin` to a GitHub-authenticated user
-who holds admin authority on a configured Snapdragon GitHub org —
+Auto-grants hugmesh.systems `admin` to a GitHub-authenticated user
+who holds admin authority on a configured HugMesh GitHub org —
 either **org-level admin** (`GET /user/memberships/orgs/{org}` → `admin`)
 **or** admin permission on **any repo** owned by that org (a paginated
 walk of `GET /user/repos`). Orgs default to
-`Snapdragon-Systems,Snapdragon` (`app.actions.gh-org-admin.orgs`); the
+`HugMesh,HugMesh` (`app.actions.gh-org-admin.orgs`); the
 granted role defaults to `admin` (`…systems-admin-role`).
 
 It has two entry points, plus a scheduled revoke loop:
@@ -173,7 +173,7 @@ sync action's shape (reactive `Mono`/`Flux` pipeline,
 Each tick:
 
 1. Reads the current member list of the systems-admin role from
-   snapdragon.systems Casdoor.
+   hugmesh.systems Casdoor.
 2. **Phase 1 — concurrent read-only scan** (bounded to 4 in flight):
    for every member we hold a **fresh** GitHub token for, replays it
    against GitHub and collects the usernames whose reach has dropped to
@@ -235,7 +235,7 @@ signs in again; the grants themselves live in Casdoor.
 > **enabled** behaviour.
 
 Supplies the missing **caller** for the registration-flow default-role
-hook in `snapdragon-admin-bff-api`: admin-bff already reads the
+hook in `hugmesh-admin-bff-api`: admin-bff already reads the
 per-`(domain, provider)` default-role map and applies it via Casdoor, but
 Casdoor exposes no first-login webhook in this org, so this scheduled
 probe observes the newest Casdoor users and calls the existing
@@ -266,7 +266,7 @@ The only request endpoint is the registration org-admin gate; the rest
 of the service is scheduled work with no request principal.
 
 `POST /api/registration/github-org-admin/evaluate` — body
-`{ githubAccessToken, snapdragonUsername }` (both bounded + charset-
+`{ githubAccessToken, hugmeshUsername }` (both bounded + charset-
 validated by Jakarta Bean Validation → `400` on malformed input). Called
 by the **registration remote's BFF** after a new user
 completes external GitHub OAuth; it forwards the user's GitHub
@@ -280,14 +280,14 @@ order:
    of the fe-/be-gateway route prefixes, reserved subdomains, the
    app routes of the optional (opt-in, default-off) games service, and
    defensive infra names — **kept
-   byte-for-byte in lockstep** with `snapdragon-gateway`'s `CanonicalSeed`
-   and `snapdragon-admin-bff-api`'s copy (all three must agree on the same
+   byte-for-byte in lockstep** with `hugmesh-gateway`'s `CanonicalSeed`
+   and `hugmesh-admin-bff-api`'s copy (all three must agree on the same
    77). This is defence-in-depth; Casdoor's own forbidden-username policy
    is the source gate.
 2. **Federation confusable / availability gate** (defence-in-depth,
    **config-gated, default off**) — when
    `app.federation.username-check.enabled=true`, asks
-   `snapdragon-federation-api`
+   `hugmesh-federation-api`
    (`GET /api/federation/username/{candidate}/availability`, a
    ROLE_SERVICE call) to catch homoglyph / look-alike / reserved-
    confusable handles the exact local check can't see, and rejects `422`
@@ -297,7 +297,7 @@ order:
    (reusing `app.casdoor.systems.*`) and cached/re-minted.
 3. **Grant** — only when both gates pass, runs
    `GitHubOrgAdminGrantAction.evaluateAndGrant`; returns
-   `{ memberId }` on success or `403` when the user has no Snapdragon
+   `{ memberId }` on success or `403` when the user has no HugMesh
    org-admin reach. **When the master switch
    `app.actions.gh-org-admin.enabled` is `false` (the default), this step
    short-circuits and the endpoint returns `404`** — the reserved-name
@@ -323,7 +323,7 @@ in [SECURITY.md](SECURITY.md)):
 - **Mutual TLS (transport layer).** `server.ssl.*` is parameterized and
   **off by default** (local/dev/CI run plaintext). In-cluster the
   deployment mounts the PKCS12 keystore/truststore from the
-  `snapdragon-api-mtls` ESO Secret and sets `SSL_ENABLED=true` +
+  `hugmesh-api-mtls` ESO Secret and sets `SSL_ENABLED=true` +
   `SSL_CLIENT_AUTH=need`, so the TLS handshake requires a client cert
   chaining to the cluster CA — only services signed by the Vault/ESO PKI
   process (the be-gateway) can call this API at all.
@@ -335,23 +335,23 @@ username/password form to `/bff/login` and `user-bff` drives the
 internal Casdoor `/api/login` + code exchange server-side and holds
 per-session JWT custody; the browser is never redirected to Casdoor,
 and the browser only ever holds an **opaque `bff_`-prefixed session** (the
-end user never sees a Casdoor JWT). The `snapdragon-gateway` is a pure
+end user never sees a Casdoor JWT). The `hugmesh-gateway` is a pure
 Casdoor-JWT OAuth2 resource server: a pre-security exchange filter swaps
 the `bff_` session for the internal custody JWT, then runs JWT validation
 + a data-driven role gate (`gateway_route_access` Postgres table via
 `GatewayRouteAccessFilter`).
 
-`snapdragon-actions` sits **behind** that gateway as another Casdoor-JWT
+`hugmesh-actions` sits **behind** that gateway as another Casdoor-JWT
 resource server. It is **not** part of the login/session path — it never
 performs a code exchange, holds no session, and validates only the
 fully-resolved internal JWT the gateway forwards. The login/session
-relocation (admin-bff → user-bff) and the `snapdragon-auth-core`
+relocation (admin-bff → user-bff) and the `hugmesh-auth-core`
 extraction (shared account/session/MFA/Casdoor-admin infra, consumed by
 user-bff + admin-bff only) therefore **do not touch this repo's code** —
 it consumes neither. The one auth machinery it *does* share is the
 stateless JWT→authority converter (`CasdoorAuthorities`, copied from
-`snapdragon-gateway`) and the `ReservedNames` canonical-77 union (kept in
-lockstep with `snapdragon-gateway` and `snapdragon-admin-bff-api`).
+`hugmesh-gateway`) and the `ReservedNames` canonical-77 union (kept in
+lockstep with `hugmesh-gateway` and `hugmesh-admin-bff-api`).
 
 ### Domain-scoping (issuer-keyed) — ✅ shipped
 
@@ -365,7 +365,7 @@ delegates JWT → authority mapping to
 resolver only when the registry is genuinely multi-issuer:
 
 - **`CasdoorAuthorities`** — the single canonical JWT → authority
-  converter (copied from `snapdragon-gateway`), used by both the single-
+  converter (copied from `hugmesh-gateway`), used by both the single-
   issuer and the optional multi-issuer decoder paths so they emit
   byte-identical authorities. It floors every principal to `ROLE_USER`,
   maps `roles` → `ROLE_<UPPER>`, passes `permissions` through **verbatim
@@ -443,13 +443,13 @@ and the GitHub-org-admin opt-in work through #38)*
 - Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
   `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
   `iss`), reserved-username gate (canonical 77 labels, in lockstep with
-  `snapdragon-gateway` + `snapdragon-admin-bff-api`), the config-gated
+  `hugmesh-gateway` + `hugmesh-admin-bff-api`), the config-gated
   federation confusable gate, SpringDoc/Swagger surface, and the GitLab
   three-stage CI pipeline (test → build:image → pentest).
 - Notifications v1's **first caller** (`RoleChangeNotifier`, wired into
   `GameMasterAdminSyncAction`) ships **dark / gated off by default**
   (`app.actions.notify.enabled=false` → logged no-op, `user_notifications`
-  stays empty). It calls snapdragon-user-bff-api's `ROLE_SERVICE`-only
+  stays empty). It calls hugmesh-user-bff-api's `ROLE_SERVICE`-only
   `POST /bff/user/internal/notifications` (merged to `main` in user-bff
   `#72`) with a Casdoor client-credentials bearer, resolving the target's
   JWT subject via the systems Casdoor's `getUserId`.
@@ -461,11 +461,11 @@ session, and the gateway swapping `bff_` → the internal custody JWT
 before its JWT validation + `gateway_route_access` role gate. Login /
 session / account logic is being **relocated from `admin-bff` to
 `user-bff`**, and the shared account/session/MFA/Casdoor-admin infra is
-extracted into **`snapdragon-auth-core`** (consumed by user-bff +
-admin-bff only). **None of that changes `snapdragon-actions`:** it is a
+extracted into **`hugmesh-auth-core`** (consumed by user-bff +
+admin-bff only). **None of that changes `hugmesh-actions`:** it is a
 downstream resource server that only ever validates the resolved internal
 JWT the gateway forwards; it performs no code exchange, holds no session,
-and depends on neither `snapdragon-auth-core` nor the login path. The
+and depends on neither `hugmesh-auth-core` nor the login path. The
 SCG-5 route-namespace fix
 (`spring.cloud.gateway.routes` → `…server.webflux.routes`) likewise does
 **not** apply — this service is not a Spring Cloud Gateway and carries no
@@ -481,22 +481,22 @@ the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
 
 **Commons adoption (✅ done — metapom parent deliberately NOT adopted):** the
 local `CasdoorAuthorities` / `DomainRegistry` copies are retired in favour of
-`systems.snapdragon.commons.security.*` imports (via a `CommonsSecurityConfig`
+`systems.hugmesh.commons.security.*` imports (via a `CommonsSecurityConfig`
 `@Import`, the same recipe `federation-api` uses), removing the byte-for-byte
 converter-drift risk between this service and the gateway/BFFs. `Roles` is
 also retired onto `commons.security.Roles`, EXCEPT `isGameMaster` /
 `usernameOf(Jwt)` / `namesOf(...)`, which commons does not carry and which had
 zero production call sites here (dropped, not ported). `pom.xml` still
 inherits `spring-boot-starter-parent` **directly** rather than
-`snapdragon-parent` (the metapom itself) — a live trial showed the metapom's
+`hugmesh-parent` (the metapom itself) — a live trial showed the metapom's
 shared `<dependencies>` block forces `spring-boot-starter-data-r2dbc` /
 `r2dbc-postgresql` / `postgresql` / `liquibase-core` / `spring-jdbc` onto every
 child, which for this "INTENTIONALLY stateless... No local DB" service (see
-`SnapdragonActionsApplication`'s own javadoc) would auto-configure an R2DBC
+`HugMeshActionsApplication`'s own javadoc) would auto-configure an R2DBC
 `ConnectionFactory` bean with no `spring.r2dbc.*` configured and fail to
-**start** in production. `snapdragon-commons:2.0.0` is instead a direct, pinned
+**start** in production. `hugmesh-commons:2.0.0` is instead a direct, pinned
 dependency with `<exclusions>` stripping those same DB artifacts (commons
-carries them transitively via its own `snapdragon-parent` ancestry) — every
+carries them transitively via its own `hugmesh-parent` ancestry) — every
 other commons transitive (security / oauth2-resource-server / validation /
 springdoc) is already declared explicitly above at the same Boot-4-BOM-managed
 version, so excluding those too is a no-op dedupe, not a footprint change.
@@ -507,13 +507,13 @@ Platform-wide, designed-or-in-flight initiatives, called out where they
 specifically touch this effector. Nothing below is a current capability
 on `main`.
 
-- **✅ Adopt `snapdragon-commons` for the converter/registry/role types.** The
+- **✅ Adopt `hugmesh-commons` for the converter/registry/role types.** The
   local `CasdoorAuthorities` / `DomainRegistry` / (most of) `Roles` copies are
-  folded onto `systems.snapdragon.commons.*`, removing the byte-for-byte-copy
-  maintenance burden. **NOT adopted:** `snapdragon-parent` as this repo's
+  folded onto `systems.hugmesh.commons.*`, removing the byte-for-byte-copy
+  maintenance burden. **NOT adopted:** `hugmesh-parent` as this repo's
   actual Maven `<parent>` — live-verified to force a DB dependency stack
   (`r2dbc`/`postgresql`/`liquibase`) onto this stateless, DB-less service that
-  would fail to start in production; `snapdragon-commons` is instead a direct
+  would fail to start in production; `hugmesh-commons` is instead a direct
   pinned dependency with `<exclusions>` (see *Baseline* above).
 - **Casdoor MFA / step-up (🔭 endpoint guard planned).** WebAuthn + TOTP +
   recovery, per-role defaults, `amr`/`acr` → `MFA_SATISFIED`. The
@@ -527,7 +527,7 @@ on `main`.
   story.
 - **OWASP pen-test + nuclei in CI (✅ wired here, expanding).** The
   `pentest` stage (SCA + authenticated ZAP baseline + nuclei) already
-  runs on this repo via the centralized `snapdragon-generator` templates;
+  runs on this repo via the centralized `hugmesh-generator` templates;
   template hardening continues platform-wide.
 
 Other in-flight platform initiatives — encrypted versioned backups
@@ -550,7 +550,7 @@ Prometheus is exposed at `/actuator/prometheus` (gated to
 | `actions.gm_sync.errors` | counter | Sync ticks that failed to read or write Casdoor |
 | `actions.gh_org_admin.granted` | counter | Users granted systems-admin via GitHub org membership |
 | `actions.gh_org_admin.revoked` | counter | Users stripped of systems-admin after losing GitHub reach |
-| `actions.gh_org_admin.denied` | counter | Sign-up evaluate requests rejected (no Snapdragon org admin) |
+| `actions.gh_org_admin.denied` | counter | Sign-up evaluate requests rejected (no HugMesh org admin) |
 | `actions.gh_org_admin.errors` | counter | Sign-up evaluations that errored before a decision |
 | `actions.gh_org_admin.reconciled` | counter | Admins re-evaluated against GitHub on a reconcile tick |
 | `actions.gh_org_admin.reconcile_skipped` | counter | Admins left untouched for lack of a fresh GitHub token |
@@ -573,12 +573,12 @@ list of keys and defaults. Highlights:
 
 | Concern | Key (env override) | Default |
 |---|---|---|
-| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…snapdragon-systems` |
+| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…hugmesh-systems` |
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_SYSTEMS_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
-| GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `Snapdragon-Systems,Snapdragon` |
+| GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `HugMesh,HugMesh` |
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
 | GitHub token TTL | `app.actions.gh-org-admin.token-ttl` (`GH_ORG_ADMIN_TOKEN_TTL`) | `PT24H` |
 | Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |
@@ -611,7 +611,7 @@ above).
 
 ```bash
 docker compose up -d                       # two Casdoors (systems + games) + the action
-docker compose logs -f snapdragon-actions  # watch ticks
+docker compose logs -f hugmesh-actions  # watch ticks
 curl localhost:8090/actuator/health        # public probe
 ```
 
@@ -639,7 +639,7 @@ The pipeline has three stages (`stages: [test, build, pentest]`):
 3. **`pentest`** (✅ shipped) — the continuous-OWASP stage. Thin
    `pentest:sca` / `pentest:dast` jobs `extends:` the centralized hidden
    `.pentest-sca` / `.pentest-dast-baseline` templates `include`d from
-   `snapdragon-generator` (`/tests/pentest/ci/pentest-stage.gitlab-ci.yml`),
+   `hugmesh-generator` (`/tests/pentest/ci/pentest-stage.gitlab-ci.yml`),
    so SCA (OWASP Dependency-Check) and DAST (authenticated ZAP baseline +
    probes + nuclei) share one source of truth across every onboarded repo.
    Both run on the default branch / merge requests with
@@ -657,7 +657,7 @@ counters for what was applied / skipped / errored.
 
 ## Native image (GraalVM)
 
-The build carries a `native` profile (same shape as `snapdragon-gateway`)
+The build carries a `native` profile (same shape as `hugmesh-gateway`)
 plus app-specific AOT reflection hints in `NativeHintsConfig` for the
 JSON-bound DTOs that cross the HTTP boundary and the
 `@CircuitBreaker`-advised action beans:

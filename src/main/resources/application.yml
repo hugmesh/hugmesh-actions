@@ -1,17 +1,17 @@
-# Snapdragon Actions — base configuration.
+# HugMesh Actions — base configuration.
 #
 # The Docker image bakes this in; per-deployment overrides come from
 # env vars referenced below. The service polls two Casdoor instances:
-# snapdragon.systems (source of truth for game-master role) and
-# snapdragon.games (target of admin role propagation).
+# hugmesh.systems (source of truth for game-master role) and
+# hugmesh.games (target of admin role propagation).
 
 spring:
   application:
-    name: snapdragon-actions
+    name: hugmesh-actions
 
   # OAuth2 resource server — validates Casdoor-issued JWTs on
   # /api/registration/** (the RegistrationController endpoint).
-  # Snapdragon-systems Casdoor is the canonical issuer for the
+  # HugMesh-systems Casdoor is the canonical issuer for the
   # actions service; the games-side Casdoor isn't trusted for this
   # surface because the action mutates state in BOTH instances.
   security:
@@ -29,18 +29,18 @@ app:
   casdoor:
     systems:
       base-url:      ${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}
-      client-id:     ${CASDOOR_SYSTEMS_CLIENT_ID:snapdragon-actions}
+      client-id:     ${CASDOOR_SYSTEMS_CLIENT_ID:hugmesh-actions}
       client-secret: ${CASDOOR_SYSTEMS_CLIENT_SECRET:}
       organization:  ${CASDOOR_SYSTEMS_ORG:snapdragon-systems}
     games:
       base-url:      ${CASDOOR_GAMES_URL:http://casdoor-games:8000}
-      client-id:     ${CASDOOR_GAMES_CLIENT_ID:snapdragon-actions}
+      client-id:     ${CASDOOR_GAMES_CLIENT_ID:hugmesh-actions}
       client-secret: ${CASDOOR_GAMES_CLIENT_SECRET:}
       organization:  ${CASDOOR_GAMES_ORG:threewizards}
   actions:
     game-master-sync:
       # 60 s default — propagation latency is "next tick after
-      # an admin flips game-master on snapdragon.systems".
+      # an admin flips game-master on hugmesh.systems".
       interval-ms:        ${GM_SYNC_INTERVAL_MS:60000}
       initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
       systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}
@@ -53,7 +53,7 @@ app:
     # the systems-admin role; the reconciler revokes it if they lose org reach.
     gh-org-admin:
       enabled:            ${GH_ORG_ADMIN_ENABLED:false}
-      orgs:               ${GH_ORG_ADMIN_ORGS:Snapdragon-Systems,Snapdragon}
+      orgs:               ${GH_ORG_ADMIN_ORGS:Snapdragon-Systems,Snapdragon,HugMesh}
       systems-admin-role: ${GH_ORG_ADMIN_ROLE:admin}
       # How long a GitHub access_token captured at sign-up stays usable
       # for the revoke reconciler. After it ages out the reconciler has
@@ -88,8 +88,8 @@ app:
     # service's mTLS client identity (the same keystore/truststore the server side mounts).
     oidc-default-roles:
       enabled:            ${APP_OIDC_DEFAULT_ROLES_ENABLED:false}
-      # In-cluster DNS of snapdragon-admin-bff-api. Only consulted when enabled.
-      admin-bff-base-url: ${APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL:http://snapdragon-admin-bff-api.snapdragon-backend.svc.cluster.local:8080}
+      # In-cluster DNS of hugmesh-admin-bff-api. Only consulted when enabled.
+      admin-bff-base-url: ${APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL:http://hugmesh-admin-bff-api.hugmesh-backend.svc.cluster.local:8080}
       # The shared X-Internal-Token secret admin-bff's InternalTokenWebFilter checks.
       # MUST match admin-bff's app.internal.token. Injected from a k8s/ESO secret at
       # deploy (never in git); blank in local/dev/CI where the loop is off anyway.
@@ -116,7 +116,7 @@ app:
     base-url:             ${GITHUB_API_BASE_URL:https://api.github.com}
   # Federation username confusable/availability gate. DEFAULT OFF — local/dev/CI
   # leave it off so the registration evaluate path runs its local exact reserved
-  # fast-path only, with no dependency on snapdragon-federation-api. In-cluster
+  # fast-path only, with no dependency on hugmesh-federation-api. In-cluster
   # the deployment flips APP_FEDERATION_USERNAME_CHECK_ENABLED=true so the
   # confusable engine (homoglyph / look-alike / reserved-confusable) runs on
   # every grant. The ROLE_SERVICE bearer for the INTERNAL availability endpoint
@@ -126,12 +126,12 @@ app:
     username-check:
       enabled: ${APP_FEDERATION_USERNAME_CHECK_ENABLED:false}
 
-# Base URL of snapdragon-federation-api (the registry owner that hosts the
+# Base URL of hugmesh-federation-api (the registry owner that hosts the
 # username availability/confusable endpoint). Defaults to the in-cluster DNS;
 # only consulted when app.federation.username-check.enabled=true.
 federation:
   api:
-    base-url: ${FEDERATION_API_BASE_URL:http://snapdragon-federation-api.snapdragon-backend.svc.cluster.local:8080}
+    base-url: ${FEDERATION_API_BASE_URL:http://hugmesh-federation-api.hugmesh-backend.svc.cluster.local:8080}
 
 # Circuit breaker over each Casdoor side — opens on 5 consecutive
 # failures, half-opens after 30 s. A degraded Casdoor doesn't pile
@@ -157,7 +157,7 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 2
       federation:
         # Bounds the cost of the username availability/confusable call to
-        # snapdragon-federation-api. The client already fails CLOSED (a timeout
+        # hugmesh-federation-api. The client already fails CLOSED (a timeout
         # or error -> collide=true), and this breaker short-circuits to the same
         # fail-closed fallback once federation is repeatedly unhealthy, so a
         # federation brown-out never stalls a grant nor admits a look-alike.
@@ -168,7 +168,7 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 3
       admin-bff:
         # Bounds the cost of the first-login default-role call to
-        # snapdragon-admin-bff-api. The OidcRoleHookClient already fails OPEN
+        # hugmesh-admin-bff-api. The OidcRoleHookClient already fails OPEN
         # (a timeout / 5xx -> empty no-op response, never a fabricated grant),
         # and this breaker short-circuits to the same fail-open fallback once
         # admin-bff is repeatedly unhealthy, so a brown-out never stalls a probe
@@ -200,12 +200,12 @@ management:
 # platform's ng-openapi-gen typed-clients, the admin api-docs/SwaggerUI
 # federated module, and the docs pipeline. The spec paths are gated by
 # SecurityConfig (permitAll under dev/test so gen:fetch can curl it
-# locally; ROLE_ADMIN in prod). Mirrors the snapdragon.games BFF.
+# locally; ROLE_ADMIN in prod). Mirrors the hugmesh.games BFF.
 springdoc:
   # Force JSON as the default produced media type. Without this, springdoc emits
   # `*/*` for endpoints with no explicit `produces`, which ng-openapi-gen maps to a
   # `Blob` response type — breaking JSON parsing in the generated typed clients.
-  # Mirrors the snapdragon-admin-bff-api / snapdragon-user-bff-api block.
+  # Mirrors the hugmesh-admin-bff-api / hugmesh-user-bff-api block.
   default-produces-media-type: application/json
   api-docs:
     enabled: true
@@ -224,12 +224,12 @@ springdoc:
   # the SpringDoc / Swagger-UI / actuator handlers are framework plumbing
   # and would clutter the generated typed-client. Scope the scan to this
   # service's web package.
-  packages-to-scan: systems.snapdragon.actions.web
+  packages-to-scan: systems.hugmesh.actions.web
 
 logging:
   level:
-    "[systems.snapdragon.actions]": INFO
-    "[systems.snapdragon.actions.sync]": INFO
+    "[systems.hugmesh.actions]": INFO
+    "[systems.hugmesh.actions.sync]": INFO
 
 server:
   port: ${PORT:8090}
@@ -240,8 +240,8 @@ server:
   # the TLS handshake REQUIRES a client cert that chains to the cluster CA. A
   # caller that was NOT deployed+signed by our Vault/ESO PKI process holds no such
   # cert, so its handshake is rejected — it cannot read or call this API at all.
-  # NOTE: this service is deployed in-cluster as "snapdragon-api" (the
-  # snapdragon-api-mtls ESO secret is its identity); see SECURITY.md.
+  # NOTE: this service is deployed in-cluster as "hugmesh-api" (the
+  # hugmesh-api-mtls ESO secret is its identity); see SECURITY.md.
   #
   # Defaults keep local/dev/CI working: ssl.enabled=false (plaintext) and
   # client-auth=none, so the truststore is never opened and existing tests are
