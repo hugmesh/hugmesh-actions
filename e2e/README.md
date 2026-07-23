@@ -189,26 +189,32 @@ Neither renders Casdoor's hosted login form or logs a user in through a browser.
 It looks for tokens in the following order:
 
 1. **`e2e/.tokens.json`** — written by `bring-up-stack.sh` once the
-   Casdoor seed data has settled. Expected shape:
+   Casdoor seed data has settled. `auth-steps.ts`'s `tokenFor()` looks
+   the key up by the *exact* role string the `.feature` file passes to
+   `Given "<actor>" is authenticated with role "<ROLE>"` (no case/format
+   translation), so the keys must match those literally:
    ```json
    {
-     "admin":       "<bearer token>",
-     "game_master": "<bearer token>",
-     "producer":    "<bearer token>",
-     "mod":         "<bearer token>",
-     "user":        "<bearer token>"
+     "ADMIN":       "<bearer token>",
+     "GAME-MASTER": "<bearer token>",
+     "PRODUCER":    "<bearer token>",
+     "MOD":         "<bearer token>",
+     "USER":        "<bearer token>"
    }
    ```
-2. **Environment variables** — fallback when `.tokens.json` is absent:
-   `TOKEN_ADMIN`, `TOKEN_GAME_MASTER`, `TOKEN_PRODUCER`, `TOKEN_MOD`,
-   `TOKEN_USER`.
+2. **Environment variables** — fallback when `.tokens.json` is absent
+   or missing a key (`tokenFor()` upper-cases and `-`→`_`s the role for
+   this lookup only): `TOKEN_ADMIN`, `TOKEN_GAME_MASTER`, `TOKEN_PRODUCER`,
+   `TOKEN_MOD`, `TOKEN_USER`.
 
 > **Note:** The token-generation step in `bring-up-stack.sh` is
-> currently a stub. Wiring it to the real Casdoor token-grant endpoint
-> is a follow-up task. Until then, scenarios that require authenticated
-> tokens are skipped; the suite exercises unauthenticated paths
-> (anonymous probes, sync trigger, and counter assertions) without real
-> tokens.
+> currently a stub — it writes `e2e/.tokens.json` as an empty `{}`
+> (`e2e/scripts/bring-up-stack.sh:77`). Wiring it to the real Casdoor
+> token-grant endpoint is a follow-up task. Until then, every
+> authenticated scenario **fails** at the `Given "<role>" is
+> authenticated` step — `tokenFor()` throws (`No token found for role
+> …`) rather than skipping. See the "What is actually asserted today"
+> note above for the per-role-access-matrix consequence of this.
 
 ## Known Gaps / TODO
 

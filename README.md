@@ -86,8 +86,10 @@ the `admin` role on the games Casdoor. Scheduled every
 
 Each tick reads both role memberships, computes the desired games-admin
 set by rewriting every systems member's `<org>/<username>` identifier to
-the games organization (`hugmesh-systems/alice` →
-`threewizards/alice`), and POSTs the new membership to games Casdoor
+the games organization (`snapdragon-systems/alice` →
+`threewizards/alice` — the literal Casdoor org identifiers,
+`app.casdoor.systems.organization` / `app.casdoor.games.organization`,
+neither yet renamed), and POSTs the new membership to games Casdoor
 **only when it actually differs**. Idempotent (a no-change tick writes
 nothing) and stateless. The per-Casdoor side-effect is wrapped in a
 Resilience4j `@CircuitBreaker(name="casdoor")` so a stalled Casdoor
@@ -140,11 +142,15 @@ later genuine re-grant/re-revoke of the same role still notifies).
 > everything below describes the **enabled** behaviour.
 
 Auto-grants hugmesh.systems `admin` to a GitHub-authenticated user
-who holds admin authority on a configured HugMesh GitHub org —
+who holds admin authority on a configured GitHub org (Snapdragon-Systems
+today; the transition list below also accepts the eventual HugMesh org) —
 either **org-level admin** (`GET /user/memberships/orgs/{org}` → `admin`)
 **or** admin permission on **any repo** owned by that org (a paginated
 walk of `GET /user/repos`). Orgs default to
-`HugMesh,HugMesh` (`app.actions.gh-org-admin.orgs`); the
+`Snapdragon-Systems,Snapdragon,HugMesh` (`app.actions.gh-org-admin.orgs`) —
+a deliberate **transition list**: the real GitHub org hasn't been renamed
+yet, so the old two names stay in the allowlist alongside the new one
+until that rename lands (drop the old two then); the
 granted role defaults to `admin` (`…systems-admin-role`).
 
 It has two entry points, plus a scheduled revoke loop:
@@ -416,8 +422,11 @@ capability on `main`.
 
 ## Current State
 
-*(as of 2026-07-16 — includes the reserved-name canonical-77 sync in #42
-and the GitHub-org-admin opt-in work through #38)*
+*(as of 2026-07-19 — includes the reserved-name canonical-77 sync in #42,
+the GitHub-org-admin opt-in work through #38, and the Snapdragon→HugMesh
+package/groupId rebrand in #44, which also bumped the `hugmesh-commons`
+dependency to 2.1.0 and switched `GH_ORG_ADMIN_ORGS`'s default to the
+transition-safe `Snapdragon-Systems,Snapdragon,HugMesh` allowlist)*
 
 **Shipped & active on `main`:**
 
@@ -494,7 +503,7 @@ shared `<dependencies>` block forces `spring-boot-starter-data-r2dbc` /
 child, which for this "INTENTIONALLY stateless... No local DB" service (see
 `HugMeshActionsApplication`'s own javadoc) would auto-configure an R2DBC
 `ConnectionFactory` bean with no `spring.r2dbc.*` configured and fail to
-**start** in production. `hugmesh-commons:2.0.0` is instead a direct, pinned
+**start** in production. `hugmesh-commons:2.1.0` is instead a direct, pinned
 dependency with `<exclusions>` stripping those same DB artifacts (commons
 carries them transitively via its own `hugmesh-parent` ancestry) — every
 other commons transitive (security / oauth2-resource-server / validation /
@@ -578,7 +587,7 @@ list of keys and defaults. Highlights:
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_SYSTEMS_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
-| GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `HugMesh,HugMesh` |
+| GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `Snapdragon-Systems,Snapdragon,HugMesh` (transition list — old org names stay allowlisted until the real GitHub org rename lands) |
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
 | GitHub token TTL | `app.actions.gh-org-admin.token-ttl` (`GH_ORG_ADMIN_TOKEN_TTL`) | `PT24H` |
 | Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |
@@ -610,9 +619,9 @@ above).
 ## Running locally
 
 ```bash
-docker compose up -d                       # two Casdoors (systems + games) + the action
-docker compose logs -f hugmesh-actions  # watch ticks
-curl localhost:8090/actuator/health        # public probe
+docker compose up -d                        # two Casdoors (systems + games) + the action
+docker compose logs -f snapdragon-actions   # watch ticks (compose.yaml's service name — not yet renamed)
+curl localhost:8090/actuator/health         # public probe
 ```
 
 The compose stack brings up two Casdoor instances (each with its own
@@ -671,12 +680,20 @@ run `native:compile` on a GraalVM JDK to produce the binary.
 
 ## Known Gaps / TODO
 
-- **e2e per-role access matrix assumes the GitHub-org-admin feature is
-  live.** `e2e/README.md`'s `per-role-access.feature` table expects `200`
-  for an admin caller on `POST /api/registration/github-org-admin/evaluate`,
-  but the feature's master switch (`app.actions.gh-org-admin.enabled`,
-  see Configuration above) defaults to `false` and is not turned on
-  anywhere in `compose.yaml` or `e2e/scripts/bring-up-stack.sh` — so as
-  configured today that call returns `404` before the role check ever
-  matters. Either flip `GH_ORG_ADMIN_ENABLED=true` in the e2e compose
-  environment or correct the expected status in the e2e docs/scenario.
+- **e2e per-role access matrix's `admin` row is aspirational, and doesn't
+  run today regardless.** `e2e/README.md`'s `per-role-access.feature` table
+  lists `200` for an admin caller on
+  `POST /api/registration/github-org-admin/evaluate` as the **target**
+  behaviour, but the actual coded scenario (`per-role-access.feature`) POSTs
+  an **empty body** and asserts `one of 400 or 422 or 500` instead — a
+  deliberate dodge (empty body fails `@Valid` before the
+  `app.actions.gh-org-admin.enabled` check, which defaults `false`, is ever
+  reached) so the scenario only proves "admin is past the auth gate," not the
+  grant outcome. Even that doesn't execute yet: `e2e/scripts/bring-up-stack.sh`
+  writes `e2e/.tokens.json` as an empty stub, so every authenticated scenario
+  (including this one) fails at the `Given "<role>" is authenticated` step
+  before the HTTP call ever fires — see e2e/README.md's "Token wiring" and
+  "What is actually asserted today" notes. Wiring real per-role tokens is the
+  actual blocker; flipping `GH_ORG_ADMIN_ENABLED=true` alone would not make
+  this specific scenario assert `200`, since it never sends a body that could
+  pass the grant.
