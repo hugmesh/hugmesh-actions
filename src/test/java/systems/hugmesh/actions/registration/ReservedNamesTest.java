@@ -98,8 +98,29 @@ class ReservedNamesTest {
         assertThat(ReservedNames.RESERVED).contains(label);
     }
 
+    /**
+     * The Character Forge (3D) additions + the rev-7/8 drift fix: {@code
+     * character-forge} (the {@code /character-forge/**} fe-gateway route +
+     * {@code /bff/character-forge/**} BFF, canonical revision 9), the games-side
+     * wasm slugs {@code games-character-forge} / {@code games-shadows-of-the-net}
+     * (hugmesh.games nginx {@code /_remotes/<slug>/} blocks, existing games-*
+     * pattern), and {@code hmdm} + {@code attest} (the Headwind MDM /
+     * AttestationServer tailnet-only superadmin-gateway route prefixes, canonical
+     * revisions 7/8 — the YAML instructed the app-repo copies to add them when
+     * those routes shipped, and this copy had drifted). A user must not be able
+     * to register any of these handles.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "character-forge", "games-character-forge", "games-shadows-of-the-net",
+            "hmdm", "attest"})
+    void everyCharacterForgeAndRev7To9LabelIsReserved(String label) {
+        assertThat(ReservedNames.isReserved(label)).isTrue();
+        assertThat(ReservedNames.RESERVED).contains(label);
+    }
+
     @Test
-    void reservedSetIsExactlyTheCanonical77Labels() {
+    void reservedSetIsExactlyTheCanonical82Labels() {
         // Guards against silent drift from the canonical reserved-prefixes.yaml
         // (and the federation/user-bff RESERVED_LABELS copies).
         // 62 -> 64: added `tube` + `games-instances-console`.
@@ -108,7 +129,11 @@ class ReservedNamesTest {
         // 70 -> 77: reconciled with the canonical YAML — added `character-studio`,
         // `v1` (revision 4), `index.html`, `favicon.ico`, `importmap.json`,
         // `remoteentry.json` (revision 5), and `ai` (revision 6).
-        assertThat(ReservedNames.RESERVED).hasSize(77);
+        // 77 -> 82: added `hmdm` (revision 7) + `attest` (revision 8) drift fix,
+        // and `character-forge` + `games-character-forge` +
+        // `games-shadows-of-the-net` (revision 9, the XR-chat/character-forge
+        // track).
+        assertThat(ReservedNames.RESERVED).hasSize(82);
     }
 
     @ParameterizedTest

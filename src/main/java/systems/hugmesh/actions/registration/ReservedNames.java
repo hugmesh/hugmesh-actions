@@ -71,10 +71,20 @@ public final class ReservedNames {
             // superadmin: TAILNET superadmin App-Store console route prefix
             // (/superadmin/appstore/** on the superadmin-gateway)
             "superadmin",
+            // hmdm / attest: the Headwind MDM (/hmdm/manage/**, /hmdm/rest/**)
+            // and AttestationServer (/attest/auditor/**, /attest/api/**)
+            // tailnet-only superadmin-gateway route prefixes (canonical
+            // reserved-prefixes.yaml rev 7/8 — drift fix: the canonical YAML
+            // instructed the app-repo copies to add these when the routes shipped)
+            "hmdm", "attest",
             // character-studio: the Character Studio (VN) micro-frontend remote,
             // served at /character-studio/** on the fe-gateway
             // (apps/20-gateway-fe.yaml route[character-studio-ui].path)
             "character-studio",
+            // character-forge: the Character Forge (3D) micro-frontend remote,
+            // served at /character-forge/** on the fe-gateway (BFF at
+            // /bff/character-forge/**) — canonical reserved-prefixes.yaml rev 9
+            "character-forge",
             // be-gateway route prefixes + publicly-routable homeserver surfaces
             // (_synapse: /_synapse/** Matrix Synapse-compat; media: /media/** Mastodon)
             "api", "_matrix", "matrix", "_synapse", "media", "mastodon", "pleroma",
@@ -107,7 +117,11 @@ public final class ReservedNames {
             "games", "play", "wasm", "wasm-fragment", "producer",
             "producer-registration", "publisher", "registration", "banned",
             "api-docs", "docs", "games-dodecahedron", "games-rpg-maker",
-            "games-three-wizards", "games-vn-maker", "games-instances-console");
+            "games-three-wizards", "games-vn-maker", "games-instances-console",
+            // games-character-forge / games-shadows-of-the-net: the 3D character
+            // maker + the XR chat room published into hugmesh.games as wasm
+            // games (nginx /_remotes/<slug>/ blocks, existing games-* pattern)
+            "games-character-forge", "games-shadows-of-the-net");
 
     /**
      * Normalise a candidate username to the DNS-label form the vanity
