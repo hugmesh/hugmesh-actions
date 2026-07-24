@@ -582,7 +582,7 @@ list of keys and defaults. Highlights:
 
 | Concern | Key (env override) | Default |
 |---|---|---|
-| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…hugmesh-systems` |
+| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…snapdragon-systems` (literal Casdoor org identifier, `app.casdoor.systems.organization` — not yet renamed, mirrors the same value used above) |
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_SYSTEMS_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
