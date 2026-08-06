@@ -65,7 +65,7 @@ GitHub-org-admin and OIDC-default-role edges are shipped but **gated off
 by default** (`app.actions.gh-org-admin.enabled=false`,
 `app.actions.oidc-default-roles.enabled=false`); the greyed `MFA` node is
 **🔭 planned** for the endpoint-enforcement guard — see
-[Roadmap](#roadmap--planned-not-shipped) (note: the MFA *converter*
+[Roadmap](#roadmap---planned-not-shipped) (note: the MFA *converter*
 support already ships dark on `main`, see Current State).
 
 ## Actions
@@ -109,7 +109,7 @@ opens the breaker and the next tick retries instead of piling up work.
 > (`actions.notify.skipped` counts every call) — the reconciler's write
 > behaviour is bit-for-bit unchanged and **nothing writes
 > `user_notifications`**. This is the platform's declared "first caller"
-> of notifications v1 (hugmesh-user-bff-api `#72`): until this flag
+> of notifications v1 (hugmesh-user-bff-api `#20`): until this flag
 > flips in-cluster, the notifications floor exists but stays empty.
 
 After a **confirmed** games-admin membership write, every added/removed
@@ -282,13 +282,13 @@ order:
 1. **Local reserved-username gate** (runs unconditionally) — rejects
    `422` any username that, normalised to the vanity-subdomain DNS-label
    form, collides with a dedicated gateway route/prefix. The reserved
-   list (`ReservedNames`, currently **77 labels**) is the canonical union
+   list (`ReservedNames`, currently **82 labels**) is the canonical union
    of the fe-/be-gateway route prefixes, reserved subdomains, the
    app routes of the optional (opt-in, default-off) games service, and
    defensive infra names — **kept
    byte-for-byte in lockstep** with `hugmesh-gateway`'s `CanonicalSeed`
    and `hugmesh-admin-bff-api`'s copy (all three must agree on the same
-   77). This is defence-in-depth; Casdoor's own forbidden-username policy
+   82). This is defence-in-depth; Casdoor's own forbidden-username policy
    is the source gate.
 2. **Federation confusable / availability gate** (defence-in-depth,
    **config-gated, default off**) — when
@@ -356,7 +356,7 @@ extraction (shared account/session/MFA/Casdoor-admin infra, consumed by
 user-bff + admin-bff only) therefore **do not touch this repo's code** —
 it consumes neither. The one auth machinery it *does* share is the
 stateless JWT→authority converter (`CasdoorAuthorities`, copied from
-`hugmesh-gateway`) and the `ReservedNames` canonical-77 union (kept in
+`hugmesh-gateway`) and the `ReservedNames` canonical-82 union (kept in
 lockstep with `hugmesh-gateway` and `hugmesh-admin-bff-api`).
 
 ### Domain-scoping (issuer-keyed) — ✅ shipped
@@ -451,7 +451,7 @@ transition-safe `Snapdragon-Systems,Snapdragon,HugMesh` allowlist)*
   🔭 planned (the `ROLE_ADMIN` endpoint authorizes on `ROLE_ADMIN` alone).
 - Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
   `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
-  `iss`), reserved-username gate (canonical 77 labels, in lockstep with
+  `iss`), reserved-username gate (canonical 82 labels, in lockstep with
   `hugmesh-gateway` + `hugmesh-admin-bff-api`), the config-gated
   federation confusable gate, SpringDoc/Swagger surface, and the GitLab
   three-stage CI pipeline (test → build:image → pentest).
@@ -460,7 +460,7 @@ transition-safe `Snapdragon-Systems,Snapdragon,HugMesh` allowlist)*
   (`app.actions.notify.enabled=false` → logged no-op, `user_notifications`
   stays empty). It calls hugmesh-user-bff-api's `ROLE_SERVICE`-only
   `POST /bff/user/internal/notifications` (merged to `main` in user-bff
-  `#72`) with a Casdoor client-credentials bearer, resolving the target's
+  `#20`) with a Casdoor client-credentials bearer, resolving the target's
   JWT subject via the systems Casdoor's `getUserId`.
 
 **Where this repo sits vs the platform auth model (2026 cycle):** the
@@ -577,8 +577,11 @@ Prometheus is exposed at `/actuator/prometheus` (gated to
 
 Every Casdoor endpoint + credential, the GitHub orgs/role, the schedule
 intervals, the token TTL, the federation toggle, and the mTLS stores are
-env-var driven — see `src/main/resources/application.yml` for the full
-list of keys and defaults. Highlights:
+env-var driven — see `src/main/resources/application.yml` for most keys
+and defaults (the `app.actions.notify.*` and `app.mfa.*` keys below are
+the exception: they only exist as inline `@Value`/`@ConditionalOnProperty`
+defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
+`SecurityConfig`, not in application.yml). Highlights:
 
 | Concern | Key (env override) | Default |
 |---|---|---|

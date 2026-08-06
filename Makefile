@@ -1,8 +1,8 @@
-# Snapdragon-actions developer Makefile.
+# hugmesh-actions developer Makefile.
 #
 # `make pentest` runs the SAME OWASP pen-test posture as the CI `pentest` stage
 # (see .gitlab-ci.yml, which `include:`s the centralized
-# Snapdragon-Systems/snapdragon-generator /tests/pentest/ci/pentest-stage.gitlab-ci.yml),
+# Snapdragon-Systems/hugmesh-generator /tests/pentest/ci/pentest-stage.gitlab-ci.yml),
 # but locally / repo-side so you can self-scan before pushing.
 #
 #   * SCA  — OWASP Dependency-Check over THIS Maven project (mirrors .pentest-sca).
@@ -22,7 +22,7 @@ JDK_IMAGE ?= eclipse-temurin:25-jdk-noble
 # Where the DAST harness lives. If the generator repo is checked out next to this
 # one (the Snapdragon-Systems org layout), it is found automatically; otherwise
 # point PENTEST_HARNESS_DIR at a checkout, or the target prints the clone command.
-PENTEST_HARNESS_DIR ?= ../snapdragon-generator/tests/pentest
+PENTEST_HARNESS_DIR ?= ../hugmesh-generator/tests/pentest
 
 .PHONY: pentest pentest-sca pentest-dast
 
@@ -57,7 +57,7 @@ pentest-dast:
 		|| { echo "    [pentest:dast] harness exited non-zero (findings or env-stand-up flake) — see out/pentest/"; exit 0; }; \
 	else \
 		echo "    harness not found at $(PENTEST_HARNESS_DIR). Clone the generator repo, e.g.:"; \
-		echo "      git clone https://github.com/Snapdragon-Systems/snapdragon-generator ../snapdragon-generator"; \
-		echo "    then re-run, or set PENTEST_HARNESS_DIR=/path/to/snapdragon-generator/tests/pentest"; \
+		echo "      git clone https://github.com/Snapdragon-Systems/hugmesh-generator ../hugmesh-generator"; \
+		echo "    then re-run, or set PENTEST_HARNESS_DIR=/path/to/hugmesh-generator/tests/pentest"; \
 		echo "    (CI runs this automatically via the included .pentest-dast-baseline job)"; \
 	fi

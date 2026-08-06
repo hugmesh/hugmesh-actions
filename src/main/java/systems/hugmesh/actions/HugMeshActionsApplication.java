@@ -26,6 +26,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *       org-admin reach has since been removed. Runs every
  *       {@code app.actions.gh-org-admin.reconcile.interval-ms}
  *       (default 6 h).</li>
+ *   <li>{@code OidcDefaultRoleProbeAction} — DEFAULT-OFF scheduled probe
+ *       that applies each new Casdoor user's OIDC-provider default roles
+ *       via admin-bff's {@code POST /bff/internal/oidc/first-login} hook.
+ *       Runs every {@code app.actions.oidc-default-roles.interval-ms}
+ *       (default 5 min).</li>
  * </ul>
  *
  * <p>The service is INTENTIONALLY stateless — every tick reads source-

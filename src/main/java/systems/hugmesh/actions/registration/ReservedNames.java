@@ -25,21 +25,40 @@ import java.util.Set;
  * <ul>
  *   <li>fe-gateway route prefixes: admin, apidocs, be, bff, _fragments,
  *       _remotes, fragments, login, logout, mod, user, users;</li>
- *   <li>be-gateway route prefixes: api, _matrix, matrix, mastodon, pleroma,
- *       forum, oauth, oauth2;</li>
+ *   <li>superadmin: the TAILNET superadmin App-Store console route
+ *       prefix;</li>
+ *   <li>hmdm / attest: the Headwind MDM and AttestationServer
+ *       tailnet-only superadmin-gateway route prefixes;</li>
+ *   <li>character-studio / character-forge: the Character Studio (VN)
+ *       and Character Forge (3D) micro-frontend remotes served on the
+ *       fe-gateway;</li>
+ *   <li>be-gateway route prefixes + publicly-routable homeserver
+ *       surfaces: api, _matrix, matrix, _synapse, media, mastodon,
+ *       pleroma, forum, phpbb, oauth, oauth2;</li>
+ *   <li>edge-AI routes: ai, v1;</li>
+ *   <li>optional-service route prefixes / reserved subdomains: tube,
+ *       owncast, wiki;</li>
  *   <li>reserved subdomains: id, auth, scale, headscale, www;</li>
+ *   <li>defensive web/infra names (root, static, assets, public, health,
+ *       healthz, actuator, metrics, well-known, favicon, robots, sitemap,
+ *       status, support, help, social, gm, pki, vault, argocd, gitlab,
+ *       registry);</li>
+ *   <li>FE webroot static / module-federation manifest filenames:
+ *       index.html, favicon.ico, importmap.json, remoteEntry.json;</li>
  *   <li>the hugmesh.games app route prefixes (derived from the games
  *       front-end nginx {@code /_remotes/<slug>/} blocks + location
  *       prefixes + the {@code <service>.hugmesh.games} subdomains):
  *       games, play, wasm, wasm-fragment, producer, producer-registration,
  *       publisher, registration, banned, api-docs, docs,
  *       games-dodecahedron, games-rpg-maker, games-three-wizards,
- *       games-vn-maker;</li>
- *   <li>defensive web/infra names (root, static, assets, public, health,
- *       healthz, actuator, metrics, well-known, favicon, robots, sitemap,
- *       status, support, help, social, gm, pki, vault, argocd, gitlab,
- *       registry).</li>
+ *       games-vn-maker, games-instances-console; and</li>
+ *   <li>games-character-forge / games-shadows-of-the-net: the 3D
+ *       character maker and XR chat room published into hugmesh.games
+ *       as wasm games.</li>
  * </ul>
+ *
+ * <p>({@code RESERVED} currently holds 82 labels — see
+ * {@code ReservedNamesTest} for the byte-for-byte assertion.)
  *
  * <p>The SAME canonical list is duplicated verbatim in
  * {@code hugmesh-admin-bff-api} ({@code ReservedNames}); the two copies
