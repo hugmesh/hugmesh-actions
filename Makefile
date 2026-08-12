@@ -20,7 +20,7 @@ SCA_FAIL_CVSS ?= 9
 # build stage — this project is Java 25 only, a 21 image fails the build).
 JDK_IMAGE ?= eclipse-temurin:25-jdk-noble
 # Where the DAST harness lives. If the generator repo is checked out next to this
-# one (the hugmesh-net org layout), it is found automatically; otherwise
+# one (the hugmesh org layout), it is found automatically; otherwise
 # point PENTEST_HARNESS_DIR at a checkout, or the target prints the clone command.
 PENTEST_HARNESS_DIR ?= ../hugmesh-generator/tests/pentest
 
@@ -57,7 +57,7 @@ pentest-dast:
 		|| { echo "    [pentest:dast] harness exited non-zero (findings or env-stand-up flake) — see out/pentest/"; exit 0; }; \
 	else \
 		echo "    harness not found at $(PENTEST_HARNESS_DIR). Clone the generator repo, e.g.:"; \
-		echo "      git clone https://github.com/hugmesh-net/hugmesh-generator ../hugmesh-generator"; \
+		echo "      git clone https://github.com/hugmesh/hugmesh-generator ../hugmesh-generator"; \
 		echo "    then re-run, or set PENTEST_HARNESS_DIR=/path/to/hugmesh-generator/tests/pentest"; \
 		echo "    (CI runs this automatically via the included .pentest-dast-baseline job)"; \
 	fi
