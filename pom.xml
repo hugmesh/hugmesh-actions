@@ -15,7 +15,7 @@
 		<relativePath/>
 	</parent>
 
-	<groupId>systems.hugmesh</groupId>
+	<groupId>net.hugmesh</groupId>
 	<artifactId>hugmesh-actions</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>hugmesh-actions</name>
@@ -175,7 +175,7 @@
 		     the same Boot-4-BOM-managed version, so leaving those unexcluded is a no-op
 		     dedupe, not a footprint change. -->
 		<dependency>
-			<groupId>systems.hugmesh</groupId>
+			<groupId>net.hugmesh</groupId>
 			<artifactId>hugmesh-commons</artifactId>
 			<version>2.1.0</version>
 			<exclusions>

@@ -490,7 +490,7 @@ the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
 
 **Commons adoption (✅ done — metapom parent deliberately NOT adopted):** the
 local `CasdoorAuthorities` / `DomainRegistry` copies are retired in favour of
-`systems.hugmesh.commons.security.*` imports (via a `CommonsSecurityConfig`
+`net.hugmesh.commons.security.*` imports (via a `CommonsSecurityConfig`
 `@Import`, the same recipe `federation-api` uses), removing the byte-for-byte
 converter-drift risk between this service and the gateway/BFFs. `Roles` is
 also retired onto `commons.security.Roles`, EXCEPT `isGameMaster` /
@@ -518,7 +518,7 @@ on `main`.
 
 - **✅ Adopt `hugmesh-commons` for the converter/registry/role types.** The
   local `CasdoorAuthorities` / `DomainRegistry` / (most of) `Roles` copies are
-  folded onto `systems.hugmesh.commons.*`, removing the byte-for-byte-copy
+  folded onto `net.hugmesh.commons.*`, removing the byte-for-byte-copy
   maintenance burden. **NOT adopted:** `hugmesh-parent` as this repo's
   actual Maven `<parent>` — live-verified to force a DB dependency stack
   (`r2dbc`/`postgresql`/`liquibase`) onto this stateless, DB-less service that

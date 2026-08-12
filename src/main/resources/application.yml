@@ -224,12 +224,12 @@ springdoc:
   # the SpringDoc / Swagger-UI / actuator handlers are framework plumbing
   # and would clutter the generated typed-client. Scope the scan to this
   # service's web package.
-  packages-to-scan: systems.hugmesh.actions.web
+  packages-to-scan: net.hugmesh.actions.web
 
 logging:
   level:
-    "[systems.hugmesh.actions]": INFO
-    "[systems.hugmesh.actions.sync]": INFO
+    "[net.hugmesh.actions]": INFO
+    "[net.hugmesh.actions.sync]": INFO
 
 server:
   port: ${PORT:8090}
