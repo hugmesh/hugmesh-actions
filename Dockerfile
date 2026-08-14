@@ -7,7 +7,7 @@
 
 FROM eclipse-temurin:25-jdk AS build
 # ── injected by scripts/patch-stack-src.sh (LOCAL stack cold build) ───────────
-# This service depends on org-private systems.hugmesh:* artifacts but ships no
+# This service depends on org-private net.hugmesh:* artifacts but ships no
 # settings.xml, so maven resolves from central only and the first goal fails.
 # MAVEN_ARGS (Maven 3.9+) threads the injected settings into EVERY mvnw call,
 # so no RUN line above needs rewriting.

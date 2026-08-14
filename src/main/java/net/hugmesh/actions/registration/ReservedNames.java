@@ -9,7 +9,7 @@ import java.util.Set;
  *
  * <p>A username must never equal a label that is also a dedicated app
  * path/prefix route or a reserved subdomain, otherwise the freshly
- * created user's vanity surface (e.g. {@code <user>.hugmesh.systems}
+ * created user's vanity surface (e.g. {@code <user>.hugmesh.net}
  * or {@code /user/<user>}) would shadow — or be shadowed by — a gateway
  * route. We reject such usernames at the FIRST point the platform sees
  * them (registration) and again at the admin/provision layer.
@@ -108,7 +108,7 @@ public final class ReservedNames {
             // (_synapse: /_synapse/** Matrix Synapse-compat; media: /media/** Mastodon)
             "api", "_matrix", "matrix", "_synapse", "media", "mastodon", "pleroma",
             "forum", "phpbb", "oauth", "oauth2",
-            // edge-AI routes: ai.hugmesh.systems (the edge-AI inference tier
+            // edge-AI routes: ai.hugmesh.net (the edge-AI inference tier
             // host, route[edge-ai].host) + /v1/analyze/** (the edge-AI analysis
             // API path, route[edge-ai-analysis].path, both apps/20-gateway-be.yaml)
             "ai", "v1",

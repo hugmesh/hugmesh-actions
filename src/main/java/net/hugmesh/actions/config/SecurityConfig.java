@@ -67,7 +67,7 @@ import net.hugmesh.commons.security.DomainRegistry;
  * per-issuer resolver was contributed ({@link TenancyResourceServerConfig}, gated
  * on {@code app.tenancy.issuers} carrying {@code =} pairs) AND the registry is
  * genuinely multi-issuer ({@link DomainRegistry#isMultiIssuer()}). This service
- * trusts ONLY the hugmesh.systems Casdoor today, so it is byte-for-byte
+ * trusts ONLY the hugmesh.net Casdoor today, so it is byte-for-byte
  * unchanged.
  *
  * <p><b>No per-domain request-scoped data here.</b> The actions service is a

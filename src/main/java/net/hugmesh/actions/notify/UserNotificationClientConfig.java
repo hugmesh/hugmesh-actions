@@ -26,7 +26,7 @@ import net.hugmesh.actions.federation.FederationUsernameClientConfig;
  *
  * <p><b>Service bearer.</b> The deliver endpoint is INTERNAL / ROLE_SERVICE
  * gated, so this caller presents a Casdoor SERVICE JWT minted via the OAuth2
- * client-credentials grant against hugmesh.systems Casdoor — reusing the
+ * client-credentials grant against hugmesh.net Casdoor — reusing the
  * canonical {@link FederationUsernameClientConfig#serviceTokenSupplier}
  * mint+cache and the same {@code app.casdoor.systems.*} credentials every
  * other internal ROLE_SERVICE caller in this service uses.

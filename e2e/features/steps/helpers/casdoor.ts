@@ -5,7 +5,7 @@ import { request } from '@playwright/test';
 // =============================================================================
 //
 // Everything in this file is server-to-server: it calls Casdoor's admin REST
-// API (add-user / get-role / update-role) with the snapdragon-actions client
+// API (add-user / get-role / update-role) with the hugmesh-actions client
 // credentials to SEED and ASSERT cross-stack role state. This is NOT a login
 // and there is no browser here.
 //
@@ -107,14 +107,14 @@ export function casdoorClients() {
   return {
     systems: new CasdoorAdmin({
       baseUrl:      process.env.CASDOOR_SYSTEMS_URL      ?? 'http://localhost:8001',
-      clientId:     process.env.CASDOOR_SYSTEMS_CLIENT_ID     ?? 'snapdragon-actions',
+      clientId:     process.env.CASDOOR_SYSTEMS_CLIENT_ID     ?? 'hugmesh-actions',
       clientSecret: process.env.CASDOOR_SYSTEMS_CLIENT_SECRET ?? '',
-      organization: process.env.CASDOOR_SYSTEMS_ORG     ?? 'snapdragon-systems',
+      organization: process.env.CASDOOR_SYSTEMS_ORG     ?? 'hugmesh',
       label: 'systems',
     }),
     games: new CasdoorAdmin({
       baseUrl:      process.env.CASDOOR_GAMES_URL       ?? 'http://localhost:8002',
-      clientId:     process.env.CASDOOR_GAMES_CLIENT_ID      ?? 'snapdragon-actions',
+      clientId:     process.env.CASDOOR_GAMES_CLIENT_ID      ?? 'hugmesh-actions',
       clientSecret: process.env.CASDOOR_GAMES_CLIENT_SECRET  ?? '',
       organization: process.env.CASDOOR_GAMES_ORG       ?? 'threewizards',
       label: 'games',

@@ -17,15 +17,15 @@ losing it on a restart only delays an auto-revoke).
 | **In-cluster identity** | Deployed under the name **`hugmesh-api`** (its mTLS identity is the `hugmesh-api-mtls` ESO Secret). The deployment manifest lives in `hugmesh-generator` (`specs/cluster/manifests/hugmesh-apis/`), not in this repo. See [SECURITY.md](SECURITY.md). |
 | **Port** | `8090` local/dev (env `PORT`); the in-cluster deployment maps it to `8080`. |
 | **Fronted by** | `hugmesh-be-gateway` — the legitimate caller of `/api/registration/**`; an external client never reaches this API directly. |
-| **Trusts** | The **hugmesh.systems Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
+| **Trusts** | The **hugmesh.net Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
 
 The reconcilers in this service are what make two platform invariants
 self-healing rather than sign-in-only: a `game-master` on
-hugmesh.systems automatically becomes an `admin` in the **optional,
+hugmesh.net automatically becomes an `admin` in the **optional,
 opt-in games realm** (the games service is OFF by default and only
 present when the build is generated with `--enable-games`), and a
 platform admin who loses their GitHub org-admin reach automatically
-loses hugmesh.systems admin.
+loses hugmesh.net admin.
 
 ```mermaid
 flowchart LR
@@ -40,7 +40,7 @@ flowchart LR
         RC --> GHA
     end
 
-    SC["hugmesh.systems Casdoor<br/>(canonical JWT issuer)"]
+    SC["hugmesh.net Casdoor<br/>(canonical JWT issuer)"]
     GC["games Casdoor<br/>(optional service, opt-in)"]:::optional
     GH["GitHub API"]
     BFF["hugmesh-admin-bff-api<br/>(internal first-login hook<br/>X-Internal-Token + mTLS)"]
@@ -80,13 +80,13 @@ support already ships dark on `main`, see Current State).
 > admin/superadmin holding the `game-master` role into the games realm as
 > a games admin.
 
-Propagates the `game-master` role from hugmesh.systems Casdoor into
+Propagates the `game-master` role from hugmesh.net Casdoor into
 the `admin` role on the games Casdoor. Scheduled every
 `app.actions.game-master-sync.interval-ms` (default **60 s**).
 
 Each tick reads both role memberships, computes the desired games-admin
 set by rewriting every systems member's `<org>/<username>` identifier to
-the games organization (`snapdragon-systems/alice` →
+the games organization (`hugmesh/alice` →
 `threewizards/alice` — the literal Casdoor org identifiers,
 `app.casdoor.systems.organization` / `app.casdoor.games.organization`,
 neither yet renamed), and POSTs the new membership to games Casdoor
@@ -118,7 +118,7 @@ sync tick) via `POST /bff/user/internal/notifications` on
 hugmesh-user-bff-api, using a Casdoor `ROLE_SERVICE` client-credentials
 bearer (same mint+cache the federation username client uses). The target
 user's JWT subject is resolved from their username against the
-**hugmesh.systems** Casdoor (`CasdoorClient#getUserId` —
+**hugmesh.net** Casdoor (`CasdoorClient#getUserId` —
 `GET /api/get-user`; login identity always lives in systems regardless of
 which org's role changed). An unresolvable username is skipped and
 counted, never guessed.
@@ -141,7 +141,7 @@ later genuine re-grant/re-revoke of the same role still notifies).
 > seeded. Superadmin opts in by setting the env var and rolling the pod;
 > everything below describes the **enabled** behaviour.
 
-Auto-grants hugmesh.systems `admin` to a GitHub-authenticated user
+Auto-grants hugmesh.net `admin` to a GitHub-authenticated user
 who holds admin authority on a configured GitHub org (Snapdragon-Systems
 today; the transition list below also accepts the eventual HugMesh org) —
 either **org-level admin** (`GET /user/memberships/orgs/{org}` → `admin`)
@@ -179,7 +179,7 @@ sync action's shape (reactive `Mono`/`Flux` pipeline,
 Each tick:
 
 1. Reads the current member list of the systems-admin role from
-   hugmesh.systems Casdoor.
+   hugmesh.net Casdoor.
 2. **Phase 1 — concurrent read-only scan** (bounded to 4 in flight):
    for every member we hold a **fresh** GitHub token for, replays it
    against GitHub and collects the usernames whose reach has dropped to
@@ -585,7 +585,7 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 
 | Concern | Key (env override) | Default |
 |---|---|---|
-| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…snapdragon-systems` (literal Casdoor org identifier, `app.casdoor.systems.organization` — not yet renamed, mirrors the same value used above) |
+| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…hugmesh` (literal Casdoor org identifier, `app.casdoor.systems.organization`; matches the main stack's CASDOOR_SYSTEMS_ORG and seed-e2e.sh's CASDOOR_ORG) |
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_SYSTEMS_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
@@ -623,7 +623,7 @@ above).
 
 ```bash
 docker compose up -d                        # two Casdoors (systems + games) + the action
-docker compose logs -f snapdragon-actions   # watch ticks (compose.yaml's service name — not yet renamed)
+docker compose logs -f hugmesh-actions   # watch ticks (compose.yaml's service name)
 curl localhost:8090/actuator/health         # public probe
 ```
 

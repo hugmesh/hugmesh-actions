@@ -28,7 +28,7 @@ import net.hugmesh.actions.sync.GitHubOrgAdminGrantAction;
  * new user signs up through external GitHub OAuth. The remote
  * forwards the user's GitHub access_token + their freshly-created
  * Casdoor username; this controller evaluates the HugMesh-org
- * admin rule and either grants admin on hugmesh.systems Casdoor
+ * admin rule and either grants admin on hugmesh.net Casdoor
  * or returns 403 with the boilerplate message the SPA shows to the
  * user.
  *
@@ -131,7 +131,7 @@ public class RegistrationController {
     public record GrantResponse(String memberId) {}
 
     @Operation(operationId = "evaluateGithubOrgAdmin",
-            summary = "Evaluate GitHub-org-admin eligibility and conditionally grant admin on hugmesh.systems Casdoor.",
+            summary = "Evaluate GitHub-org-admin eligibility and conditionally grant admin on hugmesh.net Casdoor.",
             description = "Called by the registration remote BFF after a user signs up via GitHub OAuth. "
                     + "Runs in order: (1) local reserved-username gate (422 on collision), "
                     + "(2) federation confusable/availability gate if configured (422 on collision, fails closed), "

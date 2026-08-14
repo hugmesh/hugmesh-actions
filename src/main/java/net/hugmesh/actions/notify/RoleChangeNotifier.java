@@ -31,7 +31,7 @@ import java.time.Instant;
  * <p><b>Subject resolution.</b> user-bff keys notifications by JWT subject
  * (the Casdoor user UUID), but reconcilers speak {@code <org>/<username>}
  * member ids — so the notifier resolves the username against the
- * hugmesh.systems Casdoor ({@link CasdoorClient#getUserId}; systems is the
+ * hugmesh.net Casdoor ({@link CasdoorClient#getUserId}; systems is the
  * platform's login identity org, whatever downstream org the role lives in).
  * An unresolvable user is SKIPPED (counted), never guessed.
  *

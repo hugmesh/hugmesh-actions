@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Thin reactive wrapper around the parts of the Casdoor admin API
  * this service needs. One instance per Casdoor server — the sync
- * action holds two (hugmesh.systems + hugmesh.games) and walks
+ * action holds two (hugmesh.net + hugmesh.games) and walks
  * users between them.
  *
  * <p>Authentication: HTTP Basic with {@code client-id} +

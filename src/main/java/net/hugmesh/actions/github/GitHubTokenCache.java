@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-memory cache of the GitHub access_token last seen for a given
- * hugmesh.systems username.
+ * hugmesh.net username.
  *
  * <p>Why this exists: the scheduled org-admin revoke reconciler
  * ({@code GitHubOrgAdminReconcileAction}) re-evaluates each current

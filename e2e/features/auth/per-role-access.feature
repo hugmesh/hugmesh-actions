@@ -1,4 +1,4 @@
-# Per-role access matrix for snapdragon-actions.
+# Per-role access matrix for hugmesh-actions.
 #
 # Every role on the platform gets one scenario verifying the auth
 # posture against the two protected endpoints:

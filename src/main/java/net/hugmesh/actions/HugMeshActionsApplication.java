@@ -14,15 +14,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *
  * <ul>
  *   <li>{@code GameMasterAdminSyncAction} — propagates the
- *       {@code game-master} role from hugmesh.systems Casdoor
+ *       {@code game-master} role from hugmesh.net Casdoor
  *       into the admin role on hugmesh.games Casdoor. Runs every
  *       {@code app.actions.game-master-sync.interval} (default 60 s).</li>
  *   <li>{@code GitHubOrgAdminGrantAction} — auto-grants
- *       hugmesh.systems admin to users with admin reach on a
+ *       hugmesh.net admin to users with admin reach on a
  *       configured HugMesh GitHub org (on-demand, from the
  *       registration flow).</li>
  *   <li>{@code GitHubOrgAdminReconcileAction} — scheduled revoke loop
- *       that strips hugmesh.systems admin from users whose GitHub
+ *       that strips hugmesh.net admin from users whose GitHub
  *       org-admin reach has since been removed. Runs every
  *       {@code app.actions.gh-org-admin.reconcile.interval-ms}
  *       (default 6 h).</li>
@@ -34,14 +34,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * </ul>
  *
  * <p>The service is INTENTIONALLY stateless — every tick reads source-
- * of-truth membership from hugmesh.systems Casdoor and reconciles
+ * of-truth membership from hugmesh.net Casdoor and reconciles
  * the hugmesh.games Casdoor against it. No local DB; no event
  * sourcing. A missed tick is corrected on the next one.
  *
  * <p>Designed to run in any container with network access to the
  * two Casdoor instances. The compose stack in this repo wires it
  * against a dev pair of Casdoor servers; production runs in the
- * hugmesh.systems cluster with prod URLs / client credentials.
+ * hugmesh.net cluster with prod URLs / client credentials.
  */
 @SpringBootApplication
 @EnableScheduling

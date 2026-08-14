@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Bring up the cross-stack test environment:
 #   • casdoor-systems on :8001  (Postgres-backed; seeds the
-#                                snapdragon-actions admin client)
+#                                hugmesh-actions admin client)
 #   • casdoor-games   on :8002  (separate Postgres)
-#   • snapdragon-actions on :8090 with GM_SYNC_INTERVAL_MS=2000
+#   • hugmesh-actions on :8090 with GM_SYNC_INTERVAL_MS=2000
 #
 # Then writes per-role bearer tokens to e2e/.tokens.json so the
 # auth steps can read them without a separate Casdoor round-trip
@@ -44,13 +44,13 @@ for url in http://localhost:8001/api/health http://localhost:8002/api/health; do
   done
 done
 
-echo "→ Waiting for snapdragon-actions..."
+echo "→ Waiting for hugmesh-actions..."
 for i in $(seq 1 60); do
   curl -sf http://localhost:8090/actuator/health >/dev/null && break
   sleep 2
   if [ "$i" -eq 60 ]; then
-    echo "snapdragon-actions not healthy after 120s" >&2
-    docker compose -f compose.yaml logs snapdragon-actions | tail -50
+    echo "hugmesh-actions not healthy after 120s" >&2
+    docker compose -f compose.yaml logs hugmesh-actions | tail -50
     exit 1
   fi
 done

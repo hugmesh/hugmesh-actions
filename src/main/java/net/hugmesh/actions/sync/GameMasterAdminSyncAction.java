@@ -22,13 +22,13 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Propagates the {@code game-master} role from hugmesh.systems
+ * Propagates the {@code game-master} role from hugmesh.net
  * Casdoor into the {@code admin} role on hugmesh.games Casdoor.
  *
  * <p>Tick (every {@code app.actions.game-master-sync.interval}):
  *
  * <ol>
- *   <li>Read hugmesh.systems' {@code game-master} role membership.</li>
+ *   <li>Read hugmesh.net' {@code game-master} role membership.</li>
  *   <li>Read hugmesh.games' {@code admin} role membership.</li>
  *   <li>Compute the desired games-admin set by mapping each systems
  *       user to its games-side identifier (same username, different

@@ -83,7 +83,7 @@ class ReservedNamesTest {
      * fe-gateway webroot static / module-federation manifest filenames, distinct
      * literal first-segments from the already-reserved bare {@code favicon},
      * canonical revision 5); and {@code ai} (the edge-AI inference tier's own
-     * reserved host {@code ai.hugmesh.systems}, canonical revision 6). A user
+     * reserved host {@code ai.hugmesh.net}, canonical revision 6). A user
      * must not be able to register any of these handles. {@code remoteentry.json}
      * is stored lower-case (like every entry in this set) though the on-disk
      * filename is {@code remoteEntry.json} — case-insensitive matching for that

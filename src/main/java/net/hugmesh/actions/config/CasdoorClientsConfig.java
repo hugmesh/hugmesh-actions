@@ -8,7 +8,7 @@ import net.hugmesh.actions.github.GitHubClient;
 
 /**
  * Wire the two Casdoor clients the sync action needs: one for
- * hugmesh.systems (source of truth for game-master role) and one
+ * hugmesh.net (source of truth for game-master role) and one
  * for hugmesh.games (target of admin role propagation).
  *
  * <p>Configuration lives in application.yml under

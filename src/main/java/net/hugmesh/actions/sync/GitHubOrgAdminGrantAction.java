@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Opt-in auto-grant of hugmesh.systems Casdoor admin to GitHub-authenticated
+ * Opt-in auto-grant of hugmesh.net Casdoor admin to GitHub-authenticated
  * users who have admin authority on any repo (or org-level admin membership)
  * within the configured HugMesh GitHub orgs.
  *
@@ -82,10 +82,10 @@ public class GitHubOrgAdminGrantAction {
         this.systemsAdminRole = systemsAdminRole;
         this.enabled = enabled;
         this.granted = Counter.builder("actions.gh_org_admin.granted")
-                .description("Users granted hugmesh.systems admin via GitHub org membership")
+                .description("Users granted hugmesh.net admin via GitHub org membership")
                 .register(registry);
         this.revoked = Counter.builder("actions.gh_org_admin.revoked")
-                .description("Users stripped of hugmesh.systems admin after losing GitHub org admin")
+                .description("Users stripped of hugmesh.net admin after losing GitHub org admin")
                 .register(registry);
         this.denied = Counter.builder("actions.gh_org_admin.denied")
                 .description("Sign-up requests rejected because the user has no HugMesh org admin")
@@ -326,7 +326,7 @@ public class GitHubOrgAdminGrantAction {
     }
 
     /** Casdoor member identifier ({@code <org>/<username>}) for a
-     *  hugmesh.systems username — the shape Casdoor stores role
+     *  hugmesh.net username — the shape Casdoor stores role
      *  members in. */
     public String memberIdFor(String hugmeshUsername) {
         return systemsCasdoor.organization() + "/" + hugmeshUsername;

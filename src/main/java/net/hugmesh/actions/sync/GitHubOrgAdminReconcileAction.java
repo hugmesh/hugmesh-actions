@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 
 /**
  * Scheduled reconciler that closes audit gap #5: an admin whose GitHub
- * org-admin reach has been removed must lose hugmesh.systems admin
+ * org-admin reach has been removed must lose hugmesh.net admin
  * automatically, not just at the next sign-in.
  *
  * <p>{@link GitHubOrgAdminGrantAction#isStillEligible} already
@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  *
  * <ol>
  *   <li>Read the current member list of the systems-admin role from
- *       hugmesh.systems Casdoor.</li>
+ *       hugmesh.net Casdoor.</li>
  *   <li>For each member we hold a fresh GitHub token for (seeded by the
  *       registration flow into {@link GitHubTokenCache}), replay that
  *       token against GitHub and revoke systems-admin iff their reach

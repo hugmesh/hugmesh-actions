@@ -2,7 +2,7 @@
 #
 # The Docker image bakes this in; per-deployment overrides come from
 # env vars referenced below. The service polls two Casdoor instances:
-# hugmesh.systems (source of truth for game-master role) and
+# hugmesh.net (source of truth for game-master role) and
 # hugmesh.games (target of admin role propagation).
 
 spring:
@@ -31,7 +31,10 @@ app:
       base-url:      ${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}
       client-id:     ${CASDOOR_SYSTEMS_CLIENT_ID:hugmesh-actions}
       client-secret: ${CASDOOR_SYSTEMS_CLIENT_SECRET:}
-      organization:  ${CASDOOR_SYSTEMS_ORG:snapdragon-systems}
+      # Must equal seed-e2e.sh's CASDOOR_ORG default: the seed creates org `hugmesh`,
+      # and a mismatch fails native login with "The user: <org>/<name> doesn't exist"
+      # immediately after a seed that verified the persona.
+      organization:  ${CASDOOR_SYSTEMS_ORG:hugmesh}
     games:
       base-url:      ${CASDOOR_GAMES_URL:http://casdoor-games:8000}
       client-id:     ${CASDOOR_GAMES_CLIENT_ID:hugmesh-actions}
@@ -40,7 +43,7 @@ app:
   actions:
     game-master-sync:
       # 60 s default — propagation latency is "next tick after
-      # an admin flips game-master on hugmesh.systems".
+      # an admin flips game-master on hugmesh.net".
       interval-ms:        ${GM_SYNC_INTERVAL_MS:60000}
       initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
       systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}

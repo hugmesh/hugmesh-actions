@@ -10,7 +10,7 @@ Given('the actions service is healthy', async ({}) => {
   await waitForActionsHealthy();
 });
 
-Given('user {string} exists on snapdragon-systems Casdoor', async ({}, username: string) => {
+Given('user {string} exists on hugmesh Casdoor', async ({}, username: string) => {
   await casdoorClients().systems.ensureUser(username);
 });
 
@@ -22,7 +22,7 @@ Given('user {string} has NO admin role on threewizards Casdoor', async ({}, user
   await casdoorClients().games.removeRoleMember(GAMES_ROLE, username);
 });
 
-Given('user {string} has the game-master role on snapdragon-systems Casdoor',
+Given('user {string} has the game-master role on hugmesh Casdoor',
       async ({}, username: string) => {
   await casdoorClients().systems.addRoleMember(SYSTEMS_ROLE, username);
 });
@@ -31,7 +31,7 @@ Given('user {string} has the admin role on threewizards Casdoor', async ({}, use
   await casdoorClients().games.addRoleMember(GAMES_ROLE, username);
 });
 
-Given('the snapdragon-systems game-master set matches the threewizards admin set', async ({}) => {
+Given('the hugmesh game-master set matches the threewizards admin set', async ({}) => {
   // Wipe both sides to empty; the equality holds trivially and the
   // sync tick should be a no-op.
   const { systems, games } = casdoorClients();
@@ -39,7 +39,7 @@ Given('the snapdragon-systems game-master set matches the threewizards admin set
   await games.setRoleMembers(GAMES_ROLE, []);
 });
 
-When('user {string} is granted game-master on snapdragon-systems Casdoor',
+When('user {string} is granted game-master on hugmesh Casdoor',
      async ({ world }, username: string) => {
   world.counters.added    = await readCounter('actions.gm_sync.added');
   world.counters.removed  = await readCounter('actions.gm_sync.removed');
@@ -47,7 +47,7 @@ When('user {string} is granted game-master on snapdragon-systems Casdoor',
   await casdoorClients().systems.addRoleMember(SYSTEMS_ROLE, username);
 });
 
-When('user {string}\'s game-master role is removed from snapdragon-systems Casdoor',
+When('user {string}\'s game-master role is removed from hugmesh Casdoor',
      async ({ world }, username: string) => {
   world.counters.added    = await readCounter('actions.gm_sync.added');
   world.counters.removed  = await readCounter('actions.gm_sync.removed');

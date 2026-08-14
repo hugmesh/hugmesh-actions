@@ -1,7 +1,7 @@
 import { type Page, request, expect } from '@playwright/test';
 
 // =============================================================================
-// BROWSER LOGIN — snapdragon-actions e2e
+// BROWSER LOGIN — hugmesh-actions e2e
 // =============================================================================
 //
 // POLICY (do not weaken): every BROWSER login in this suite goes through OUR
