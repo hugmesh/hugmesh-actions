@@ -88,7 +88,7 @@ Each tick reads both role memberships, computes the desired games-admin
 set by rewriting every systems member's `<org>/<username>` identifier to
 the games organization (`hugmesh/alice` →
 `threewizards/alice` — the literal Casdoor org identifiers,
-`app.casdoor.systems.organization` / `app.casdoor.games.organization`,
+`app.casdoor.platform.organization` / `app.casdoor.games.organization`,
 neither yet renamed), and POSTs the new membership to games Casdoor
 **only when it actually differs**. Idempotent (a no-change tick writes
 nothing) and stateless. The per-Casdoor side-effect is wrapped in a
@@ -300,7 +300,7 @@ order:
    on a collision. The check **fails closed** — a federation outage
    rejects rather than mints a look-alike. The service bearer is minted
    via the OAuth2 client-credentials grant against systems Casdoor
-   (reusing `app.casdoor.systems.*`) and cached/re-minted.
+   (reusing `app.casdoor.platform.*`) and cached/re-minted.
 3. **Grant** — only when both gates pass, runs
    `GitHubOrgAdminGrantAction.evaluateAndGrant`; returns
    `{ memberId }` on success or `403` when the user has no HugMesh
@@ -585,9 +585,9 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 
 | Concern | Key (env override) | Default |
 |---|---|---|
-| Systems Casdoor | `app.casdoor.systems.*` (`CASDOOR_SYSTEMS_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…hugmesh` (literal Casdoor org identifier, `app.casdoor.systems.organization`; matches the main stack's CASDOOR_SYSTEMS_ORG and seed-e2e.sh's CASDOOR_ORG) |
+| Systems Casdoor | `app.casdoor.platform.*` (`CASDOOR_PLATFORM_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…hugmesh` (literal Casdoor org identifier, `app.casdoor.platform.organization`; matches the main stack's CASDOOR_PLATFORM_ORG and seed-e2e.sh's CASDOOR_ORG) |
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
-| JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_SYSTEMS_URL`) | systems Casdoor |
+| JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_PLATFORM_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
 | GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `Snapdragon-Systems,Snapdragon,HugMesh` (transition list — old org names stay allowlisted until the real GitHub org rename lands) |

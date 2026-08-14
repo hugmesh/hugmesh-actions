@@ -33,7 +33,7 @@ import java.util.function.Supplier;
  * <p><b>Service bearer.</b> The availability endpoint is INTERNAL / ROLE_SERVICE
  * gated, so this caller presents a Casdoor SERVICE JWT minted via the OAuth2
  * client-credentials grant against hugmesh.net Casdoor — reusing the same
- * {@code app.casdoor.systems.{base-url,client-id,client-secret}} credentials the
+ * {@code app.casdoor.platform.{base-url,client-id,client-secret}} credentials the
  * service already holds for the admin API. The token is cached and re-minted
  * shortly before expiry (mirrors hugmesh-remote-fragment's CasdoorTokenClient).
  *
@@ -53,9 +53,9 @@ public class FederationUsernameClientConfig {
     public FederationUsernameClient federationUsernameClient(
             @Value("${federation.api.base-url:http://hugmesh-federation-api.hugmesh-backend.svc.cluster.local:8080}")
             String baseUrl,
-            @Value("${app.casdoor.systems.base-url}") String casdoorBaseUrl,
-            @Value("${app.casdoor.systems.client-id}") String clientId,
-            @Value("${app.casdoor.systems.client-secret}") String clientSecret) {
+            @Value("${app.casdoor.platform.base-url}") String casdoorBaseUrl,
+            @Value("${app.casdoor.platform.client-id}") String clientId,
+            @Value("${app.casdoor.platform.client-secret}") String clientSecret) {
 
         WebClient federation = WebClient.builder().baseUrl(baseUrl).build();
         WebClient casdoor = WebClient.builder().baseUrl(casdoorBaseUrl).build();
@@ -73,7 +73,7 @@ public class FederationUsernameClientConfig {
      * <p>Public + reused: the OIDC default-role registration hook
      * ({@code OidcRoleHookClientConfig}) mints its admin-bff ROLE_SERVICE
      * bearer through this exact same supplier against the same
-     * {@code app.casdoor.systems.*} credentials — one canonical
+     * {@code app.casdoor.platform.*} credentials — one canonical
      * client-credentials mint+cache for every internal ROLE_SERVICE caller
      * in this service.
      */

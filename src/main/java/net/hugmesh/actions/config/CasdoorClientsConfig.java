@@ -22,10 +22,10 @@ public class CasdoorClientsConfig {
 
     @Bean
     public CasdoorClient systemsCasdoorClient(
-            @Value("${app.casdoor.systems.base-url}")     String baseUrl,
-            @Value("${app.casdoor.systems.client-id}")    String clientId,
-            @Value("${app.casdoor.systems.client-secret}") String clientSecret,
-            @Value("${app.casdoor.systems.organization}") String organization) {
+            @Value("${app.casdoor.platform.base-url}")     String baseUrl,
+            @Value("${app.casdoor.platform.client-id}")    String clientId,
+            @Value("${app.casdoor.platform.client-secret}") String clientSecret,
+            @Value("${app.casdoor.platform.organization}") String organization) {
         return new CasdoorClient(baseUrl, clientId, clientSecret, organization, "systems");
     }
 

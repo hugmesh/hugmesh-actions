@@ -18,8 +18,8 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri:  ${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}
-          jwk-set-uri: ${CASDOOR_SYSTEMS_JWKS_URI:${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}/.well-known/jwks}
+          issuer-uri:  ${CASDOOR_PLATFORM_URL:http://casdoor-systems:8000}
+          jwk-set-uri: ${CASDOOR_PLATFORM_JWKS_URI:${CASDOOR_PLATFORM_URL:http://casdoor-systems:8000}/.well-known/jwks}
 
 # Casdoor endpoints + admin credentials — one block per side.
 # Production deploys set these via env file / secret manager;
@@ -27,14 +27,14 @@ spring:
 # local Casdoor containers.
 app:
   casdoor:
-    systems:
-      base-url:      ${CASDOOR_SYSTEMS_URL:http://casdoor-systems:8000}
-      client-id:     ${CASDOOR_SYSTEMS_CLIENT_ID:hugmesh-actions}
-      client-secret: ${CASDOOR_SYSTEMS_CLIENT_SECRET:}
+    platform:
+      base-url:      ${CASDOOR_PLATFORM_URL:http://casdoor-systems:8000}
+      client-id:     ${CASDOOR_PLATFORM_CLIENT_ID:hugmesh-actions}
+      client-secret: ${CASDOOR_PLATFORM_CLIENT_SECRET:}
       # Must equal seed-e2e.sh's CASDOOR_ORG default: the seed creates org `hugmesh`,
       # and a mismatch fails native login with "The user: <org>/<name> doesn't exist"
       # immediately after a seed that verified the persona.
-      organization:  ${CASDOOR_SYSTEMS_ORG:hugmesh}
+      organization:  ${CASDOOR_PLATFORM_ORG:hugmesh}
     games:
       base-url:      ${CASDOOR_GAMES_URL:http://casdoor-games:8000}
       client-id:     ${CASDOOR_GAMES_CLIENT_ID:hugmesh-actions}
@@ -124,7 +124,7 @@ app:
   # confusable engine (homoglyph / look-alike / reserved-confusable) runs on
   # every grant. The ROLE_SERVICE bearer for the INTERNAL availability endpoint
   # is minted via the systems-Casdoor client-credentials grant (reuses
-  # app.casdoor.systems.*).
+  # app.casdoor.platform.*).
   federation:
     username-check:
       enabled: ${APP_FEDERATION_USERNAME_CHECK_ENABLED:false}

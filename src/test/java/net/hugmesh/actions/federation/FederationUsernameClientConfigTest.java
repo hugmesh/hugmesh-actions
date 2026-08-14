@@ -28,9 +28,9 @@ class FederationUsernameClientConfigTest {
             .withConfiguration(AutoConfigurations.of())
             .withUserConfiguration(FederationUsernameClientConfig.class)
             .withPropertyValues(
-                    "app.casdoor.systems.base-url=http://casdoor:8000",
-                    "app.casdoor.systems.client-id=hugmesh-actions",
-                    "app.casdoor.systems.client-secret=secret");
+                    "app.casdoor.platform.base-url=http://casdoor:8000",
+                    "app.casdoor.platform.client-id=hugmesh-actions",
+                    "app.casdoor.platform.client-secret=secret");
 
     @Test
     void beanIsAbsentByDefault_gateOff() {

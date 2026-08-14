@@ -28,7 +28,7 @@ import net.hugmesh.actions.federation.FederationUsernameClientConfig;
  * gated, so this caller presents a Casdoor SERVICE JWT minted via the OAuth2
  * client-credentials grant against hugmesh.net Casdoor — reusing the
  * canonical {@link FederationUsernameClientConfig#serviceTokenSupplier}
- * mint+cache and the same {@code app.casdoor.systems.*} credentials every
+ * mint+cache and the same {@code app.casdoor.platform.*} credentials every
  * other internal ROLE_SERVICE caller in this service uses.
  *
  * <p><b>Base URL</b> defaults to the in-cluster DNS of user-bff-api,
@@ -42,9 +42,9 @@ public class UserNotificationClientConfig {
     public UserNotificationClient userNotificationClient(
             @Value("${app.actions.notify.user-bff-base-url:http://hugmesh-user-bff-api.hugmesh-backend.svc.cluster.local:8080}")
             String baseUrl,
-            @Value("${app.casdoor.systems.base-url}") String casdoorBaseUrl,
-            @Value("${app.casdoor.systems.client-id}") String clientId,
-            @Value("${app.casdoor.systems.client-secret}") String clientSecret) {
+            @Value("${app.casdoor.platform.base-url}") String casdoorBaseUrl,
+            @Value("${app.casdoor.platform.client-id}") String clientId,
+            @Value("${app.casdoor.platform.client-secret}") String clientSecret) {
 
         WebClient userBff = WebClient.builder().baseUrl(baseUrl).build();
         WebClient casdoor = WebClient.builder().baseUrl(casdoorBaseUrl).build();

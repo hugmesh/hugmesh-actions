@@ -106,10 +106,10 @@ export class CasdoorAdmin {
 export function casdoorClients() {
   return {
     systems: new CasdoorAdmin({
-      baseUrl:      process.env.CASDOOR_SYSTEMS_URL      ?? 'http://localhost:8001',
-      clientId:     process.env.CASDOOR_SYSTEMS_CLIENT_ID     ?? 'hugmesh-actions',
-      clientSecret: process.env.CASDOOR_SYSTEMS_CLIENT_SECRET ?? '',
-      organization: process.env.CASDOOR_SYSTEMS_ORG     ?? 'hugmesh',
+      baseUrl:      process.env.CASDOOR_PLATFORM_URL      ?? 'http://localhost:8001',
+      clientId:     process.env.CASDOOR_PLATFORM_CLIENT_ID     ?? 'hugmesh-actions',
+      clientSecret: process.env.CASDOOR_PLATFORM_CLIENT_SECRET ?? '',
+      organization: process.env.CASDOOR_PLATFORM_ORG     ?? 'hugmesh',
       label: 'systems',
     }),
     games: new CasdoorAdmin({

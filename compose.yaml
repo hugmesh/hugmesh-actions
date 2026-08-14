@@ -80,10 +80,10 @@ services:
       casdoor-games:
         condition: service_healthy
     environment:
-      CASDOOR_SYSTEMS_URL:           http://casdoor-systems:8000
-      CASDOOR_SYSTEMS_CLIENT_ID:     ${CASDOOR_SYSTEMS_CLIENT_ID:-hugmesh-actions}
-      CASDOOR_SYSTEMS_CLIENT_SECRET: ${CASDOOR_SYSTEMS_CLIENT_SECRET:-}
-      CASDOOR_SYSTEMS_ORG:           hugmesh
+      CASDOOR_PLATFORM_URL:           http://casdoor-systems:8000
+      CASDOOR_PLATFORM_CLIENT_ID:     ${CASDOOR_PLATFORM_CLIENT_ID:-hugmesh-actions}
+      CASDOOR_PLATFORM_CLIENT_SECRET: ${CASDOOR_PLATFORM_CLIENT_SECRET:-}
+      CASDOOR_PLATFORM_ORG:           hugmesh
       CASDOOR_GAMES_URL:             http://casdoor-games:8000
       CASDOOR_GAMES_CLIENT_ID:       ${CASDOOR_GAMES_CLIENT_ID:-hugmesh-actions}
       CASDOOR_GAMES_CLIENT_SECRET:   ${CASDOOR_GAMES_CLIENT_SECRET:-}
