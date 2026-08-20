@@ -9,7 +9,7 @@
 # `pentest:*` jobs below `extends:` those hidden jobs. See memory
 # hugmesh-pentest-standard ("a stage in every ArgoCD-onboarded repo's pipeline").
 include:
-  - project: 'HugMesh/hugmesh-generator'
+  - project: 'hugmesh/hugmesh-generator'
     ref: main
     file: '/tests/pentest/ci/pentest-stage.gitlab-ci.yml'
 
