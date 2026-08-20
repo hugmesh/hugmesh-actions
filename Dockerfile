@@ -1,4 +1,4 @@
-# Snapdragon Actions — multi-stage build.
+# HugMesh Actions — multi-stage build.
 #
 # Stage 1: build the fat jar on a JDK image (Maven resolves deps in
 # a separate cache-friendly layer).

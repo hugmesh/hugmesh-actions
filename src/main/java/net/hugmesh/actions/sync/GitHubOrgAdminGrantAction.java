@@ -42,7 +42,8 @@ import java.util.Set;
  * <ul>
  *   <li>{@code app.actions.gh-org-admin.enabled} — master on/off switch (default false).</li>
  *   <li>{@code app.actions.gh-org-admin.orgs} — GitHub orgs whose admins map to
- *       systems-admin. Default: {@code Snapdragon-Systems,Snapdragon,HugMesh} (transition window - drop the old two once the GH org rename to HugMesh is confirmed live).</li>
+ *       systems-admin. Default: {@code hugmesh,HugMesh} (both casings deliberately —
+ *       the repo-admin reach path matches the repo owner's login case-sensitively).</li>
  *   <li>{@code app.actions.gh-org-admin.systems-admin-role} — target Casdoor role.
  *       Default: {@code admin}.</li>
  * </ul>
@@ -71,7 +72,7 @@ public class GitHubOrgAdminGrantAction {
             GitHubClient github,
             @Qualifier("systemsCasdoorClient") CasdoorClient systemsCasdoor,
             GitHubTokenCache tokenCache,
-            @Value("${app.actions.gh-org-admin.orgs:Snapdragon-Systems,Snapdragon,HugMesh}") String orgsCsv,
+            @Value("${app.actions.gh-org-admin.orgs:hugmesh,HugMesh}") String orgsCsv,
             @Value("${app.actions.gh-org-admin.systems-admin-role:admin}") String systemsAdminRole,
             @Value("${app.actions.gh-org-admin.enabled:false}") boolean enabled,
             MeterRegistry registry) {

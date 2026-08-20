@@ -2,7 +2,7 @@
 #
 # `make pentest` runs the SAME OWASP pen-test posture as the CI `pentest` stage
 # (see .gitlab-ci.yml, which `include:`s the centralized
-# Snapdragon-Systems/hugmesh-generator /tests/pentest/ci/pentest-stage.gitlab-ci.yml),
+# hugmesh/hugmesh-generator /tests/pentest/ci/pentest-stage.gitlab-ci.yml),
 # but locally / repo-side so you can self-scan before pushing.
 #
 #   * SCA  — OWASP Dependency-Check over THIS Maven project (mirrors .pentest-sca).

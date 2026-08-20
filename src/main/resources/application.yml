@@ -56,7 +56,7 @@ app:
     # the systems-admin role; the reconciler revokes it if they lose org reach.
     gh-org-admin:
       enabled:            ${GH_ORG_ADMIN_ENABLED:false}
-      orgs:               ${GH_ORG_ADMIN_ORGS:Snapdragon-Systems,Snapdragon,HugMesh}
+      orgs:               ${GH_ORG_ADMIN_ORGS:hugmesh,HugMesh}
       systems-admin-role: ${GH_ORG_ADMIN_ROLE:admin}
       # How long a GitHub access_token captured at sign-up stays usable
       # for the revoke reconciler. After it ages out the reconciler has
