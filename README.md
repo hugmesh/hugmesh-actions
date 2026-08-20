@@ -142,15 +142,13 @@ later genuine re-grant/re-revoke of the same role still notifies).
 > everything below describes the **enabled** behaviour.
 
 Auto-grants hugmesh.net `admin` to a GitHub-authenticated user
-who holds admin authority on a configured GitHub org (Snapdragon-Systems
-today; the transition list below also accepts the eventual HugMesh org) —
+who holds admin authority on a configured GitHub org (the HugMesh org) —
 either **org-level admin** (`GET /user/memberships/orgs/{org}` → `admin`)
 **or** admin permission on **any repo** owned by that org (a paginated
 walk of `GET /user/repos`). Orgs default to
-`Snapdragon-Systems,Snapdragon,HugMesh` (`app.actions.gh-org-admin.orgs`) —
-a deliberate **transition list**: the real GitHub org hasn't been renamed
-yet, so the old two names stay in the allowlist alongside the new one
-until that rename lands (drop the old two then); the
+`hugmesh,HugMesh` (`app.actions.gh-org-admin.orgs`) — both casings
+deliberately, because the repo-admin reach path matches the repo owner's
+login case-sensitively; the
 granted role defaults to `admin` (`…systems-admin-role`).
 
 It has two entry points, plus a scheduled revoke loop:
@@ -423,10 +421,10 @@ capability on `main`.
 ## Current State
 
 *(as of 2026-07-19 — includes the reserved-name canonical-77 sync in #42,
-the GitHub-org-admin opt-in work through #38, and the Snapdragon→HugMesh
+the GitHub-org-admin opt-in work through #38, and the HugMesh
 package/groupId rebrand in #44, which also bumped the `hugmesh-commons`
-dependency to 2.1.0 and switched `GH_ORG_ADMIN_ORGS`'s default to the
-transition-safe `Snapdragon-Systems,Snapdragon,HugMesh` allowlist)*
+dependency to 2.1.0; `GH_ORG_ADMIN_ORGS`'s transition-window default has
+since been narrowed to `hugmesh,HugMesh` now the GitHub org rename is live)*
 
 **Shipped & active on `main`:**
 
@@ -590,7 +588,7 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_PLATFORM_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
-| GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `Snapdragon-Systems,Snapdragon,HugMesh` (transition list — old org names stay allowlisted until the real GitHub org rename lands) |
+| GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `hugmesh,HugMesh` (both casings — the repo-admin reach path matches the repo owner's login case-sensitively) |
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
 | GitHub token TTL | `app.actions.gh-org-admin.token-ttl` (`GH_ORG_ADMIN_TOKEN_TTL`) | `PT24H` |
 | Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |

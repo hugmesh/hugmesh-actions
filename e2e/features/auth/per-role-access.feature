@@ -11,7 +11,7 @@
 # (infra-url-audit). A role drift here means the gate regressed.
 Feature: Per-role access matrix — actions service
   As the actions service
-  I must enforce role gates consistently for every Snapdragon role
+  I must enforce role gates consistently for every HugMesh role
   So a misconfigured token can't reach gated infra or registration paths.
 
   Background:
