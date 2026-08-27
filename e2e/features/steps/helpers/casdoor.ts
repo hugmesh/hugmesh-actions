@@ -1,4 +1,5 @@
 import { request } from '@playwright/test';
+import { resolveE2ePassword } from './e2e-credentials';
 
 // =============================================================================
 // SERVER-SIDE ONLY — Casdoor admin API for test SETUP / provisioning.
@@ -46,7 +47,9 @@ export class CasdoorAdmin {
           owner: this.cfg.organization,
           name: username,
           displayName: username,
-          password: 'e2e-pass',
+          // Resolved, never a literal — see helpers/e2e-credentials.ts.
+          // $E2E_<USERNAME>_PASSWORD -> $E2E_PASSWORD -> .e2e-credentials -> throw.
+          password: resolveE2ePassword(username),
         },
       });
     } finally {

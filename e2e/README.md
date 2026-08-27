@@ -216,6 +216,29 @@ It looks for tokens in the following order:
 > …`) rather than skipping. See the "What is actually asserted today"
 > note above for the per-role-access-matrix consequence of this.
 
+## Password wiring
+
+`helpers/casdoor.ts`'s `ensureUser()` seeds each test Casdoor account with a
+password resolved by `helpers/e2e-credentials.ts`'s `resolveE2ePassword()`.
+This repo is a **consumer** of the org-wide e2e credential contract — it
+never generates or hardcodes a password. Precedence:
+
+1. **`$E2E_<USERNAME>_PASSWORD`** — per-user override, e.g.
+   `E2E_ALICE_PASSWORD` for the `alice` fixture in
+   `cross-stack-admin-sync.feature`.
+2. **`$E2E_PASSWORD`** — shared override, or same-run propagation from
+   whatever process generated it first.
+3. **The run-state credentials file** — `$E2E_CREDENTIALS_FILE` if set,
+   otherwise the nearest `.e2e-credentials` walking up from `process.cwd()`
+   (so it finds the one at repo root when tests run from `e2e/`). Same two
+   keys, `KEY=value` lines. This repo only reads this file — it is written
+   by `make stack-seed` (hugmesh-generator's `e2e_password_ensure()`) — and
+   never fails just because the file doesn't exist yet; it falls through to
+   the next step.
+4. **Throw.** If nothing above resolves, `resolveE2ePassword()` throws
+   naming `make stack-seed` and the exact path it looked for. There is no
+   literal fallback — see the org e2e-password contract's Rule 4.
+
 ## Known Gaps / TODO
 
 - **`GM_SYNC_INTERVAL_MS` is never actually shortened for e2e runs.**
