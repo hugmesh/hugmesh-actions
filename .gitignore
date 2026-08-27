@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### e2e run-state credentials ###
+# Written by `make stack-seed` (hugmesh-generator's e2e_password_ensure());
+# this repo only reads it (see e2e/features/steps/helpers/e2e-credentials.ts).
+# Gitignored here even though this repo never writes it — see the org e2e
+# password contract, Rule 3.
+.e2e-credentials
