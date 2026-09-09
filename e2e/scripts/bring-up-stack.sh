@@ -76,4 +76,7 @@ done
 echo "→ Minting per-role bearer tokens, SERVER-SIDE via Casdoor (TODO: real impl)..."
 echo '{}' > e2e/.tokens.json
 
-echo "✓ Stack up. Run `npm --prefix e2e test` to execute the suite."
+# NOTE: single quotes, not backticks. Backticks inside a double-quoted string are
+# COMMAND SUBSTITUTION, so the previous spelling actually RAN the whole Playwright
+# suite here and swallowed its output into this banner.
+echo "✓ Stack up. Run 'npm --prefix e2e test' to execute the suite."
