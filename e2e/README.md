@@ -178,8 +178,11 @@ call Casdoor's token endpoint directly. Those paths are labelled
 
 - `helpers/casdoor.ts` — Casdoor admin REST API (add-user / get-role /
   update-role) that seeds and asserts role state.
-- `scripts/bring-up-stack.sh` — per-role Bearer JWT minting via Casdoor's
-  OAuth2 password grant / token endpoint.
+- `scripts/bring-up-stack.sh` — where per-role Bearer JWT minting via
+  Casdoor's OAuth2 password grant / token endpoint **will** live. It is
+  classified here so the mint lands on an allowed path when it is written;
+  it is **not implemented today** — the script writes an empty `{}` stub.
+  See the Note under "Token wiring" below.
 
 Neither renders Casdoor's hosted login form or logs a user in through a browser.
 
@@ -188,8 +191,10 @@ Neither renders Casdoor's hosted login form or logs a user in through a browser.
 `auth-steps.ts` supplies bearer tokens to role-authenticated requests.
 It looks for tokens in the following order:
 
-1. **`e2e/.tokens.json`** — written by `bring-up-stack.sh` once the
-   Casdoor seed data has settled. `auth-steps.ts`'s `tokenFor()` looks
+1. **`e2e/.tokens.json`** — *intended* to be written by
+   `bring-up-stack.sh` once Casdoor seed data has settled. **Today nothing
+   writes it:** the script emits an empty `{}` (see the Note below), so in
+   practice only step 2 resolves. `auth-steps.ts`'s `tokenFor()` looks
    the key up by the *exact* role string the `.feature` file passes to
    `Given "<actor>" is authenticated with role "<ROLE>"` (no case/format
    translation), so the keys must match those literally:
@@ -208,13 +213,41 @@ It looks for tokens in the following order:
    `TOKEN_MOD`, `TOKEN_USER`.
 
 > **Note:** The token-generation step in `bring-up-stack.sh` is
-> currently a stub — it writes `e2e/.tokens.json` as an empty `{}`
-> (`e2e/scripts/bring-up-stack.sh:77`). Wiring it to the real Casdoor
-> token-grant endpoint is a follow-up task. Until then, every
-> authenticated scenario **fails** at the `Given "<role>" is
+> currently a stub — it writes `e2e/.tokens.json` as an empty `{}` (the
+> `TODO(e2e-tokens)` block in `e2e/scripts/bring-up-stack.sh`). Until it
+> lands, every authenticated scenario **fails** at the `Given "<role>" is
 > authenticated` step — `tokenFor()` throws (`No token found for role
 > …`) rather than skipping. See the "What is actually asserted today"
 > note above for the per-role-access-matrix consequence of this.
+>
+> **It is not just a missing token call.** Measured 2026-09-09 against
+> `casbin/casdoor:3.80.0` and this repo's `compose.yaml`, three
+> prerequisites are unmet, and the script's `TODO(e2e-tokens)` block
+> carries the detail:
+>
+> 1. **Neither Casdoor is wired to its Postgres.** The image default is
+>    `driverName = mysql` / `dataSourceName =
+>    root:123456@tcp(localhost:3306)/`, and `compose.yaml` sets neither
+>    variable — so `casdoor-systems` / `casdoor-games` target MySQL on the
+>    docker host, not the `pg-systems` / `pg-games` containers they
+>    `depends_on`.
+> 2. **Nothing provisions the identities the grant needs.** The image ships
+>    no `init_data.json` and none is mounted, so a fresh Casdoor holds only
+>    org `built-in` and app `app-built-in` — no org `hugmesh`, no
+>    `user`/`producer`/`mod`/`game-master`/`admin` roles, no app with
+>    clientId `hugmesh-actions`, and `CASDOOR_PLATFORM_CLIENT_SECRET`
+>    defaults to empty. Both the admin API (`helpers/casdoor.ts`) and the
+>    password grant have nothing to authenticate as. Writing that seeder is
+>    the bulk of the work, and it needs a decision first: this repo's own
+>    seeder, or hugmesh-generator's `tests/stack/seed-e2e.sh` (which targets
+>    a single Casdoor on `:8000` behind a `:8088` front door — not this
+>    stack's two on `:8001`/`:8002`, so it is not reusable as-is).
+> 3. **Even a successful mint would be rejected.** Casdoor's `origin` is
+>    empty by default, so it derives a token's `iss` from the request host: a
+>    mint through `http://localhost:8001` stamps
+>    `iss=http://localhost:8001`, while `hugmesh-actions` validates
+>    `issuer-uri=${CASDOOR_PLATFORM_URL}` (`http://casdoor-systems:8000`).
+>    Every authenticated scenario would `401` holding a valid token.
 
 ## Password wiring
 
@@ -242,14 +275,16 @@ never generates or hardcodes a password. Precedence:
 ## Known Gaps / TODO
 
 - **`GM_SYNC_INTERVAL_MS` is never actually shortened for e2e runs.**
-  `bring-up-stack.sh`'s header comment (`e2e/scripts/bring-up-stack.sh:6`)
-  and its body comment (`e2e/scripts/bring-up-stack.sh:31-32`, "an e2e
-  overlay that shortens the sync tick") both describe an override to
-  `2000`ms, but no such override file exists and the script only runs
-  `docker compose -f compose.yaml up -d --wait` (`e2e/scripts/bring-up-stack.sh:33`)
-  against the repo-root `compose.yaml`, which does not set
-  `GM_SYNC_INTERVAL_MS` — so the action service actually runs the
-  `application.yml` default of `60000`ms. Meanwhile
+  `bring-up-stack.sh` used to assert this override twice — in its header
+  and in an "an e2e overlay that shortens the sync tick" body comment. Both
+  assertions have been removed from the script (it now states the opposite),
+  but **the gap itself is unfixed**: no overlay file exists, the script runs
+  `docker compose -f compose.yaml up -d --wait` against the repo-root
+  `compose.yaml`, and that file sets no `GM_SYNC_INTERVAL_MS` on the
+  `hugmesh-actions` service — so the action service runs the
+  `application.yml` default of `60000`ms
+  (`src/main/resources/application.yml:47`,
+  `${GM_SYNC_INTERVAL_MS:60000}`). Meanwhile
   `waitForSyncTick()` (`e2e/features/steps/helpers/actions.ts:38-43`)
   falls back to `process.env.GM_SYNC_INTERVAL_MS ?? '2000'` and only
   waits `2.2×` that value (~4.4 s) when the env var isn't set. As wired
