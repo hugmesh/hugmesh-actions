@@ -1,13 +1,29 @@
 #!/usr/bin/env bash
-# Bring up the cross-stack test environment:
-#   • casdoor-systems on :8001  (Postgres-backed; seeds the
-#                                hugmesh-actions admin client)
-#   • casdoor-games   on :8002  (separate Postgres)
-#   • hugmesh-actions on :8090 with GM_SYNC_INTERVAL_MS=2000
+# Bring up the cross-stack test environment defined by the repo-root
+# compose.yaml, and wait for it to report healthy:
+#   • casdoor-systems on :8001
+#   • casdoor-games   on :8002
+#   • hugmesh-actions on :8090
 #
-# Then writes per-role bearer tokens to e2e/.tokens.json so the
-# auth steps can read them without a separate Casdoor round-trip
-# per scenario.
+# WHAT THIS SCRIPT DOES NOT DO. This header previously advertised four
+# things that are not wired. Each is measured; each names where the
+# evidence lives. Read this before trusting the stack it brings up:
+#
+#   • NEITHER CASDOOR IS POSTGRES-BACKED. Both run the image's MySQL
+#     default, so the pg-systems / pg-games containers they `depends_on`
+#     hold no Casdoor data. -> TODO(e2e-tokens) below, item 1.
+#   • NOTHING SEEDS THE hugmesh-actions ADMIN CLIENT. No org `hugmesh`,
+#     no roles, no OAuth app is provisioned; a fresh Casdoor holds only
+#     `built-in` / `app-built-in`. -> TODO(e2e-tokens) below, item 2.
+#   • NO PER-ROLE BEARER TOKENS ARE MINTED. e2e/.tokens.json is written
+#     as an empty `{}` stub, so every authenticated scenario fails at the
+#     `is authenticated` step unless you export TOKEN_USER / TOKEN_PRODUCER
+#     / TOKEN_MOD / TOKEN_GAME_MASTER / TOKEN_ADMIN yourself.
+#     -> TODO(e2e-tokens) below.
+#   • hugmesh-actions DOES NOT RUN WITH GM_SYNC_INTERVAL_MS=2000. There
+#     is no e2e compose overlay and compose.yaml sets no override, so the
+#     service runs application.yml's `${GM_SYNC_INTERVAL_MS:60000}` default
+#     of 60 s. -> "Known Gaps / TODO" in e2e/README.md.
 #
 # Usage:
 #   bash e2e/scripts/bring-up-stack.sh    # bring up + wait healthy
@@ -28,8 +44,9 @@ case "${1:-up}" in
     ;;
 esac
 
-# Use the existing compose.yaml at the repo root + an e2e overlay
-# that shortens the sync tick + binds tokens to known values.
+# The repo-root compose.yaml, as-is. There is NO e2e overlay: nothing
+# shortens the sync tick and nothing binds tokens to known values. See the
+# header for what that costs you.
 docker compose -f compose.yaml up -d --wait
 
 echo "→ Waiting for both Casdoors..."
