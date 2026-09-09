@@ -698,3 +698,17 @@ run `native:compile` on a GraalVM JDK to produce the binary.
   actual blocker; flipping `GH_ORG_ADMIN_ENABLED=true` alone would not make
   this specific scenario assert `200`, since it never sends a body that could
   pass the grant.
+- **The e2e token stub is blocked on stack provisioning, not on a missing
+  token call.** Measured 2026-09-09 against `casbin/casdoor:3.80.0` plus this
+  repo's `compose.yaml`: neither Casdoor is wired to the Postgres it
+  `depends_on` (the image default is `driverName = mysql` and `compose.yaml`
+  sets no `driverName`/`dataSourceName`); the image ships no `init_data.json`
+  and none is mounted, so a fresh Casdoor has only org `built-in` / app
+  `app-built-in` — no org `hugmesh`, no role objects, no app with clientId
+  `hugmesh-actions`, and `CASDOOR_PLATFORM_CLIENT_SECRET` defaults to empty;
+  and Casdoor's `origin` is unset, so a host-side mint would stamp
+  `iss=http://localhost:8001` while this service validates
+  `issuer-uri=http://casdoor-systems:8000`. The `TODO(e2e-tokens)` block in
+  `e2e/scripts/bring-up-stack.sh` carries the detail, the fix references, and
+  the open decision (own Casdoor seeder vs. consuming hugmesh-generator's
+  `tests/stack/seed-e2e.sh`, which targets a different topology).

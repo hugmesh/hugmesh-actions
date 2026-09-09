@@ -208,13 +208,41 @@ It looks for tokens in the following order:
    `TOKEN_MOD`, `TOKEN_USER`.
 
 > **Note:** The token-generation step in `bring-up-stack.sh` is
-> currently a stub — it writes `e2e/.tokens.json` as an empty `{}`
-> (`e2e/scripts/bring-up-stack.sh:77`). Wiring it to the real Casdoor
-> token-grant endpoint is a follow-up task. Until then, every
-> authenticated scenario **fails** at the `Given "<role>" is
+> currently a stub — it writes `e2e/.tokens.json` as an empty `{}` (the
+> `TODO(e2e-tokens)` block in `e2e/scripts/bring-up-stack.sh`). Until it
+> lands, every authenticated scenario **fails** at the `Given "<role>" is
 > authenticated` step — `tokenFor()` throws (`No token found for role
 > …`) rather than skipping. See the "What is actually asserted today"
 > note above for the per-role-access-matrix consequence of this.
+>
+> **It is not just a missing token call.** Measured 2026-09-09 against
+> `casbin/casdoor:3.80.0` and this repo's `compose.yaml`, three
+> prerequisites are unmet, and the script's `TODO(e2e-tokens)` block
+> carries the detail:
+>
+> 1. **Neither Casdoor is wired to its Postgres.** The image default is
+>    `driverName = mysql` / `dataSourceName =
+>    root:123456@tcp(localhost:3306)/`, and `compose.yaml` sets neither
+>    variable — so `casdoor-systems` / `casdoor-games` target MySQL on the
+>    docker host, not the `pg-systems` / `pg-games` containers they
+>    `depends_on`.
+> 2. **Nothing provisions the identities the grant needs.** The image ships
+>    no `init_data.json` and none is mounted, so a fresh Casdoor holds only
+>    org `built-in` and app `app-built-in` — no org `hugmesh`, no
+>    `user`/`producer`/`mod`/`game-master`/`admin` roles, no app with
+>    clientId `hugmesh-actions`, and `CASDOOR_PLATFORM_CLIENT_SECRET`
+>    defaults to empty. Both the admin API (`helpers/casdoor.ts`) and the
+>    password grant have nothing to authenticate as. Writing that seeder is
+>    the bulk of the work, and it needs a decision first: this repo's own
+>    seeder, or hugmesh-generator's `tests/stack/seed-e2e.sh` (which targets
+>    a single Casdoor on `:8000` behind a `:8088` front door — not this
+>    stack's two on `:8001`/`:8002`, so it is not reusable as-is).
+> 3. **Even a successful mint would be rejected.** Casdoor's `origin` is
+>    empty by default, so it derives a token's `iss` from the request host: a
+>    mint through `http://localhost:8001` stamps
+>    `iss=http://localhost:8001`, while `hugmesh-actions` validates
+>    `issuer-uri=${CASDOOR_PLATFORM_URL}` (`http://casdoor-systems:8000`).
+>    Every authenticated scenario would `401` holding a valid token.
 
 ## Password wiring
 
