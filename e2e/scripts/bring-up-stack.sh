@@ -1,41 +1,41 @@
 #!/usr/bin/env bash
 # Bring up the cross-stack test environment defined by the repo-root
 # compose.yaml, and wait for it to report healthy:
-#   • casdoor-systems on :8001
-#   • casdoor-games   on :8002
+#   • casdoor-systems on :8001  (Postgres-backed — see compose.yaml)
+#   • casdoor-games   on :8002  (Postgres-backed — see compose.yaml)
 #   • hugmesh-actions on :8090
 #
-# WHAT THIS SCRIPT DOES NOT DO. This header previously advertised four
-# things that are not wired. Each is measured; each names where the
-# evidence lives. Read this before trusting the stack it brings up:
+# Then seeds the SYSTEMS Casdoor (org, five role objects, the
+# hugmesh-actions OAuth app, one test user per role) and mints five
+# real password-grant bearer tokens into e2e/.tokens.json — this
+# repo's OWN Casdoor seeder, lib/casdoor-seed.sh (Decision 62, operator,
+# 2026-09-18, hugmesh-actions#7).
 #
-#   • NEITHER CASDOOR IS POSTGRES-BACKED. Both run the image's MySQL
-#     default, so the pg-systems / pg-games containers they `depends_on`
-#     hold no Casdoor data. -> DEFERRED(e2e-tokens) below, item 1.
-#   • NOTHING SEEDS THE hugmesh-actions ADMIN CLIENT. No org `hugmesh`,
-#     no roles, no OAuth app is provisioned; a fresh Casdoor holds only
-#     `built-in` / `app-built-in`. -> DEFERRED(e2e-tokens) below, item 2.
-#   • NO PER-ROLE BEARER TOKENS ARE MINTED. e2e/.tokens.json is written
-#     as an empty `{}` stub, so every authenticated scenario fails at the
-#     `is authenticated` step unless you export TOKEN_USER / TOKEN_PRODUCER
-#     / TOKEN_MOD / TOKEN_GAME_MASTER / TOKEN_ADMIN yourself. BECAUSE OF
-#     THIS, this script now FAILS (non-zero exit) once the stack is up
-#     rather than reporting success over that empty stub — see
-#     E2E_ALLOW_ANONYMOUS_ONLY below. -> DEFERRED(e2e-tokens) below.
+# WHAT THIS SCRIPT STILL DOES NOT DO:
+#
 #   • hugmesh-actions DOES NOT RUN WITH GM_SYNC_INTERVAL_MS=2000. There
-#     is no e2e compose overlay and compose.yaml sets no override, so the
-#     service runs application.yml's `${GM_SYNC_INTERVAL_MS:60000}` default
-#     of 60 s. -> "Known Gaps / TODO" in e2e/README.md.
+#     is no e2e compose overlay and compose.yaml sets no override, so
+#     the service runs application.yml's `${GM_SYNC_INTERVAL_MS:60000}`
+#     default of 60s. Unrelated to Decision 62 — see "Known Gaps / TODO"
+#     in e2e/README.md.
+#   • cross-stack-admin-sync.feature's GAMES-side identities (the
+#     lowercase 'game-master'/'admin' role objects the sync test grants
+#     directly, on BOTH Casdoors) are NOT provisioned by this script.
+#     Decision 62 / issue #7 was scoped to the per-role-access-matrix
+#     tokens below; that is a separate, still-open gap — see
+#     e2e/README.md.
 #
 # Usage:
-#   bash e2e/scripts/bring-up-stack.sh    # bring up + wait healthy;
-#                                          # FAILS (exit 1) if per-role
-#                                          # tokens cannot be minted (they
-#                                          # never can today — see above)
+#   bash e2e/scripts/bring-up-stack.sh    # bring up + wait healthy +
+#                                          # seed + mint; FAILS (exit 1)
+#                                          # if any seeding/minting step
+#                                          # does not complete
 #   E2E_ALLOW_ANONYMOUS_ONLY=1 bash e2e/scripts/bring-up-stack.sh
-#                                          # same, but exit 0 anyway; only
-#                                          # the anonymous scenarios will
-#                                          # pass and this says so loudly
+#                                          # same bring-up, but SKIPS the
+#                                          # seeder entirely and exits 0
+#                                          # anyway; only the anonymous
+#                                          # scenarios will pass and this
+#                                          # says so loudly
 #   bash e2e/scripts/bring-up-stack.sh stop   # tear down
 #
 # The script idempotently re-creates state — safe to re-run while
@@ -44,6 +44,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."  # repo root
+REPO_ROOT="$(pwd)"
+export REPO_ROOT
 # shellcheck source=lib/token-mint-guard.sh
 source "$(dirname "$0")/lib/token-mint-guard.sh"
 
@@ -55,9 +57,34 @@ case "${1:-up}" in
     ;;
 esac
 
+# ── Credentials, resolved BEFORE `docker compose up` ────────────────────────
+# Two DIFFERENT kinds of credential, two different rules:
+#
+#   * E2E_PASSWORD (the five test users' shared password, absent a
+#     per-user E2E_<ROLE>_PASSWORD override) follows the org e2e-password
+#     CONSUMER contract (resolve_e2e_password, lib/e2e-password-resolve.sh):
+#     this repo never generates or hardcodes it. Checked here, before
+#     bringing up any container, so a missing credential fails in
+#     seconds instead of after a ~2-minute compose wait.
+#   * CASDOOR_PLATFORM_CLIENT_SECRET / CASDOOR_GAMES_CLIENT_SECRET (the
+#     Casdoor OAuth app's own secret) ARE generated by this script — see
+#     generate_client_secret's header for why that one is allowed to
+#     invent a value. They MUST be resolved before `docker compose up`
+#     because compose.yaml bakes ${CASDOOR_PLATFORM_CLIENT_SECRET:-} /
+#     ${CASDOOR_GAMES_CLIENT_SECRET:-} into the hugmesh-actions
+#     container at CREATION time — a value discovered only after the
+#     container already exists can never reach it (the same "resolve
+#     before up, not after" rule the e2e-password contract states for
+#     Casdoor's own user-password seeding).
+if ! resolve_e2e_password >/dev/null; then
+  exit 1
+fi
+: "${CASDOOR_PLATFORM_CLIENT_SECRET:=$(generate_client_secret 32)}"
+: "${CASDOOR_GAMES_CLIENT_SECRET:=$(generate_client_secret 32)}"
+export CASDOOR_PLATFORM_CLIENT_SECRET CASDOOR_GAMES_CLIENT_SECRET
+
 # The repo-root compose.yaml, as-is. There is NO e2e overlay: nothing
-# shortens the sync tick and nothing binds tokens to known values. See the
-# header for what that costs you.
+# shortens the sync tick. See the header for what that costs you.
 docker compose -f compose.yaml up -d --wait
 
 echo "→ Waiting for both Casdoors..."
@@ -83,7 +110,7 @@ for i in $(seq 1 60); do
   fi
 done
 
-# ── Per-role bearer tokens ─────────────────────────────────────────────────
+# ── Per-role bearer tokens ────────────────────────────────────────────────
 # e2e tests need bearer tokens for ROLE_USER / ROLE_PRODUCER / ROLE_MOD /
 # ROLE_GAME-MASTER / ROLE_ADMIN against the systems Casdoor.
 #
@@ -99,79 +126,30 @@ done
 # e2e/features/steps/helpers/login-ui.ts. Casdoor's hosted login page is
 # never used anywhere in this suite.
 #
-# DEFERRED(e2e-tokens): mint the five per-role bearer JWTs here and write them to
-# e2e/.tokens.json, keyed by the EXACT role strings the .feature files pass to
-# `Given "<actor>" is authenticated with role "<ROLE>"` — USER / PRODUCER /
-# MOD / GAME-MASTER / ADMIN (tokenFor() in features/steps/auth-steps.ts does no
-# case or format translation on that lookup).
-#
-# STILL A STUB, and the missing piece is NOT just the token call. Measured
-# 2026-09-09 against casbin/casdoor:3.80.0 (conf/app.conf extracted from the
-# image) plus this repo's compose.yaml, THREE prerequisites are unmet:
-#
-#   1. NEITHER CASDOOR IS WIRED TO ITS POSTGRES. The image default is
-#      `driverName = mysql` with
-#      `dataSourceName = root:123456@tcp(localhost:3306)/`, and compose.yaml
-#      sets neither `driverName` nor `dataSourceName` on casdoor-systems /
-#      casdoor-games — so both target MySQL on the docker host rather than the
-#      pg-systems / pg-games containers they `depends_on`, and compose.yaml's
-#      "Postgres-backed" header comment does not describe what is wired. The
-#      env pair to add is the one hugmesh-generator already runs against this
-#      same image in tests/stack/compose.real.yaml.
-#
-#   2. NOTHING PROVISIONS THE IDENTITIES THE GRANT NEEDS. The image ships no
-#      init_data.json (verified absent) and compose.yaml mounts none, so a
-#      fresh Casdoor holds ONLY organization `built-in` and app
-#      `app-built-in`. There is no org `hugmesh`, no roles
-#      user/producer/mod/game-master/admin, and no OAuth app whose clientId is
-#      `hugmesh-actions` — while CASDOOR_PLATFORM_CLIENT_SECRET defaults to
-#      EMPTY in compose.yaml. So both the Casdoor admin API (Basic
-#      clientId:clientSecret, the auth features/steps/helpers/casdoor.ts
-#      already uses) and the password grant have nothing to authenticate as,
-#      and no user to mint for. Seeding that is the real body of this task —
-#      and it needs a decision first: does this repo grow its OWN Casdoor
-#      seeder, or consume hugmesh-generator's tests/stack/seed-e2e.sh? That
-#      script targets a DIFFERENT topology (one Casdoor on :8000 behind a
-#      front door on :8088; this stack is two Casdoors on :8001/:8002), so it
-#      is not reusable as-is. That open choice is why this is not a small
-#      change.
-#
-#   3. EVEN A SUCCESSFUL MINT WOULD BE REJECTED. `origin` is EMPTY in the
-#      image default, so Casdoor derives a token's `iss` from the REQUEST
-#      HOST. A mint issued by this script (http://localhost:8001) would stamp
-#      iss=http://localhost:8001, while hugmesh-actions validates
-#      issuer-uri=${CASDOOR_PLATFORM_URL}, i.e. http://casdoor-systems:8000 —
-#      so every authenticated scenario would 401 while holding a perfectly
-#      good token. Fix: pin `origin` on each Casdoor to the URL the service
-#      validates. hugmesh-generator hit exactly this and documented the
-#      measurement in tests/stack/compose.real.yaml.
-#
-# WHEN THE MINT LANDS, two contracts it must honour:
-#   * PASSWORD RESOLUTION follows the org e2e-credential contract this repo
-#     already consumes on the TypeScript side
-#     (features/steps/helpers/e2e-credentials.ts): $E2E_<USER>_PASSWORD ->
-#     $E2E_PASSWORD -> the .e2e-credentials run-state file -> THROW. This repo
-#     is a CONSUMER: it must never generate or hardcode a password.
-#   * GRANT SHAPE: POST <casdoor>/api/login/oauth/access_token,
-#     grant_type=password, trying the PLAIN username first and <org>/<name>
-#     only as a fallback spelling, reading .access_token and reporting
-#     Casdoor's .error code on failure (invalid_grant = credentials/user
-#     lookup, unsupported_grant_type = grant config) — the shape
-#     hugmesh-generator's tests/qemu/seed-accounts.sh premint_token() already
-#     proved against a live Casdoor.
-#
-# Until then this writes an EMPTY object rather than a token map, and FAILS
-# LOUDLY rather than announcing a mint it did not perform. mint_tokens_or_fail
-# (lib/token-mint-guard.sh) is what makes that decision and is unit-tested in
-# isolation by test-token-mint-guard.sh — see that file to exercise both the
-# default-fail and E2E_ALLOW_ANONYMOUS_ONLY=1 paths without a live stack.
+# mint_tokens_or_fail (lib/token-mint-guard.sh) either skips straight to
+# an ANONYMOUS-ONLY stub (E2E_ALLOW_ANONYMOUS_ONLY=1) or runs the real
+# seeder (lib/casdoor-seed.sh's provision_and_mint_tokens) and writes
+# e2e/.tokens.json, keyed by the EXACT role strings the .feature files
+# pass to `Given "<actor>" is authenticated with role "<ROLE>"` — USER /
+# PRODUCER / MOD / GAME-MASTER / ADMIN (tokenFor() in
+# features/steps/auth-steps.ts does no case or format translation on
+# that lookup). On ANY failure it writes an EMPTY object rather than a
+# partial token map, and FAILS LOUDLY rather than announcing a mint it
+# did not (fully) perform. Unit-tested offline (shimmed curl/docker, no
+# live Casdoor) by test-token-mint-guard.sh.
 if mint_tokens_or_fail e2e/.tokens.json; then
-  # NOTE: single quotes, not backticks. Backticks inside a double-quoted string
-  # are COMMAND SUBSTITUTION, so the previous spelling actually RAN the whole
-  # Playwright suite here and swallowed its output into this banner.
-  echo "⚠ Compose stack up (containers healthy), ANONYMOUS-ONLY. Run 'npm"
-  echo "  --prefix e2e test' to execute the suite — only the anonymous"
-  echo "  scenarios can pass; see the warning above."
+  if [ "${E2E_ALLOW_ANONYMOUS_ONLY:-}" = "1" ]; then
+    # NOTE: single quotes, not backticks. Backticks inside a double-quoted
+    # string are COMMAND SUBSTITUTION, so the previous spelling actually
+    # RAN the whole Playwright suite here and swallowed its output into
+    # this banner.
+    echo "⚠ Compose stack up (containers healthy), ANONYMOUS-ONLY. Run 'npm"
+    echo "  --prefix e2e test' to execute the suite — only the anonymous"
+    echo "  scenarios can pass; see the warning above."
+  else
+    echo "✓ Compose stack up (containers healthy), per-role bearer tokens"
+    echo "  minted. Run 'npm --prefix e2e test' to execute the full suite."
+  fi
 else
   echo "✗ bring-up-stack.sh FAILED: per-role bearer tokens were not minted." >&2
   echo "  Containers are up (docker compose ps to check) but this is NOT a" >&2

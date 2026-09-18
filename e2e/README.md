@@ -34,13 +34,19 @@ e2e/
 Run all commands from the repository root.
 
 ```bash
-# 1. Start casdoor-systems, casdoor-games, and hugmesh-actions via Docker Compose.
-#    Per-role tokens cannot be minted today (see "Token wiring" below), so
-#    this now FAILS (exit 1) unless you explicitly acknowledge that:
+# 1. Start casdoor-systems, casdoor-games, and hugmesh-actions via Docker
+#    Compose, then seed the systems Casdoor and mint real per-role bearer
+#    tokens (see "Token wiring" below). Needs $E2E_PASSWORD or a
+#    .e2e-credentials file resolvable BEFORE this runs — see "Password
+#    wiring". FAILS (exit 1) if the password can't be resolved, or if
+#    seeding/minting doesn't fully complete:
+bash e2e/scripts/bring-up-stack.sh
+
+#    To skip the seeder entirely and run only the anonymous scenarios
+#    (no Casdoor provisioning attempted):
 E2E_ALLOW_ANONYMOUS_ONLY=1 bash e2e/scripts/bring-up-stack.sh
 
-# 2. Install dependencies and run the full BDD suite (only the anonymous
-#    scenarios can pass without hand-supplied TOKEN_* env vars — see below).
+# 2. Install dependencies and run the full BDD suite.
 npm --prefix e2e install
 npm --prefix e2e test
 
@@ -103,16 +109,19 @@ corresponding scenario to fail immediately.
 > stack is wired today an admin caller gets `404` instead. See the top-level
 > README's Known Gaps section.
 
-> **What is actually asserted today.** Only the **anonymous** scenario
-> runs end-to-end right now — it needs no bearer token. The five
-> authenticated tiers (player / producer / mod / game-master / admin)
-> depend on real per-role tokens, and the bring-up's token-generation
-> step is still a stub (see [Token wiring](#token-wiring)); until it is
-> wired, those scenarios fail at the `Given "<role>" is authenticated`
-> step (the helper throws when no token is present) rather than
-> exercising the role gate. The SecurityConfig path-matchers themselves
-> are meanwhile locked in by the JVM `SecurityConfigPathRulesTest` /
-> `SecurityConfigSpecPathsTest` unit tests, which do not need tokens.
+> **What is actually asserted today.** `bring-up-stack.sh` now mints a
+> real per-role bearer token for all five authenticated tiers (see
+> [Token wiring](#token-wiring)) — but that mint has been proven
+> **offline only**: a shimmed `curl` standing in for Casdoor's admin API
+> + OAuth2 password grant (`e2e/scripts/test-casdoor-seed.sh`), never a
+> real `casbin/casdoor` container. **A person still needs to run
+> `bash e2e/scripts/bring-up-stack.sh` followed by `npm --prefix e2e
+> test` against a real compose stack to confirm the six
+> `per-role-access.feature` scenarios pass end-to-end** — see the root
+> README / hugmesh-actions#7 for what to look for. The SecurityConfig
+> path-matchers themselves are meanwhile locked in by the JVM
+> `SecurityConfigPathRulesTest` / `SecurityConfigSpecPathsTest` unit
+> tests, which do not need tokens.
 
 ## Reports
 
@@ -181,11 +190,11 @@ call Casdoor's token endpoint directly. Those paths are labelled
 
 - `helpers/casdoor.ts` — Casdoor admin REST API (add-user / get-role /
   update-role) that seeds and asserts role state.
-- `scripts/bring-up-stack.sh` — where per-role Bearer JWT minting via
-  Casdoor's OAuth2 password grant / token endpoint **will** live. It is
-  classified here so the mint lands on an allowed path when it is written;
-  it is **not implemented today** — the script writes an empty `{}` stub.
-  See the Note under "Token wiring" below.
+- `scripts/lib/casdoor-seed.sh` (invoked by `scripts/bring-up-stack.sh`) —
+  provisions the systems Casdoor (org, five role objects, the
+  hugmesh-actions OAuth app, one user per role tier) and mints per-role
+  Bearer JWTs via Casdoor's OAuth2 password grant / token endpoint. See
+  "Token wiring" below.
 
 Neither renders Casdoor's hosted login form or logs a user in through a browser.
 
@@ -194,10 +203,10 @@ Neither renders Casdoor's hosted login form or logs a user in through a browser.
 `auth-steps.ts` supplies bearer tokens to role-authenticated requests.
 It looks for tokens in the following order:
 
-1. **`e2e/.tokens.json`** — *intended* to be written by
-   `bring-up-stack.sh` once Casdoor seed data has settled. **Today nothing
-   writes it:** the script emits an empty `{}` (see the Note below), so in
-   practice only step 2 resolves. `auth-steps.ts`'s `tokenFor()` looks
+1. **`e2e/.tokens.json`** — written by `bring-up-stack.sh` (via
+   `scripts/lib/casdoor-seed.sh`'s `provision_and_mint_tokens`) once the
+   systems Casdoor is seeded — see the Note below for what that seeding
+   does and its one unverified step. `auth-steps.ts`'s `tokenFor()` looks
    the key up by the *exact* role string the `.feature` file passes to
    `Given "<actor>" is authenticated with role "<ROLE>"` (no case/format
    translation), so the keys must match those literally:
@@ -215,49 +224,74 @@ It looks for tokens in the following order:
    this lookup only): `TOKEN_ADMIN`, `TOKEN_GAME_MASTER`, `TOKEN_PRODUCER`,
    `TOKEN_MOD`, `TOKEN_USER`.
 
-> **Note:** The token-generation step in `bring-up-stack.sh` is
-> currently a stub — it writes `e2e/.tokens.json` as an empty `{}` (the
-> `DEFERRED(e2e-tokens)` block in `e2e/scripts/bring-up-stack.sh`). Because
-> of that, **`bring-up-stack.sh` itself now fails (exit 1) once the stack
-> is healthy**, rather than reporting success over that empty stub — pass
-> `E2E_ALLOW_ANONYMOUS_ONLY=1` to bring the stack up anyway (the script
-> prints a `⚠` warning banner, never a plain `✓`, when you do). Either
-> way, until the mint lands, every authenticated scenario **fails** at the
-> `Given "<role>" is authenticated` step — `tokenFor()` throws (`No token
-> found for role …`) rather than skipping. See the "What is actually
-> asserted today" note above for the per-role-access-matrix consequence of
-> this. The fail/allow decision lives in
-> `e2e/scripts/lib/token-mint-guard.sh`, unit-tested by
-> `e2e/scripts/test-token-mint-guard.sh` without needing a live stack.
+> **Note (Decision 62, operator, 2026-09-18, hugmesh-actions#7): this
+> repo now runs its OWN Casdoor seeder** —
+> `e2e/scripts/lib/casdoor-seed.sh`'s `provision_and_mint_tokens`, called
+> from `bring-up-stack.sh` via the `mint_tokens_or_fail` guard
+> (`e2e/scripts/lib/token-mint-guard.sh`) — rather than consuming
+> hugmesh-generator's `tests/stack/seed-e2e.sh` (which targets a
+> different topology: a single Casdoor on `:8000` behind a `:8088` front
+> door, not this stack's two standalone Casdoors on `:8001`/`:8002`).
 >
-> **It is not just a missing token call.** Measured 2026-09-09 against
-> `casbin/casdoor:3.80.0` and this repo's `compose.yaml`, three
-> prerequisites are unmet, and the script's `DEFERRED(e2e-tokens)` block
-> carries the detail:
+> The three prerequisites measured 2026-09-09 are now fixed:
 >
-> 1. **Neither Casdoor is wired to its Postgres.** The image default is
->    `driverName = mysql` / `dataSourceName =
->    root:123456@tcp(localhost:3306)/`, and `compose.yaml` sets neither
->    variable — so `casdoor-systems` / `casdoor-games` target MySQL on the
->    docker host, not the `pg-systems` / `pg-games` containers they
->    `depends_on`.
-> 2. **Nothing provisions the identities the grant needs.** The image ships
->    no `init_data.json` and none is mounted, so a fresh Casdoor holds only
->    org `built-in` and app `app-built-in` — no org `hugmesh`, no
->    `user`/`producer`/`mod`/`game-master`/`admin` roles, no app with
->    clientId `hugmesh-actions`, and `CASDOOR_PLATFORM_CLIENT_SECRET`
->    defaults to empty. Both the admin API (`helpers/casdoor.ts`) and the
->    password grant have nothing to authenticate as. Writing that seeder is
->    the bulk of the work, and it needs a decision first: this repo's own
->    seeder, or hugmesh-generator's `tests/stack/seed-e2e.sh` (which targets
->    a single Casdoor on `:8000` behind a `:8088` front door — not this
->    stack's two on `:8001`/`:8002`, so it is not reusable as-is).
-> 3. **Even a successful mint would be rejected.** Casdoor's `origin` is
->    empty by default, so it derives a token's `iss` from the request host: a
->    mint through `http://localhost:8001` stamps
->    `iss=http://localhost:8001`, while `hugmesh-actions` validates
->    `issuer-uri=${CASDOOR_PLATFORM_URL}` (`http://casdoor-systems:8000`).
->    Every authenticated scenario would `401` holding a valid token.
+> 1. **Both Casdoors are wired to their own Postgres** — `driverName:
+>    postgres` / `dataSourceName: ...host=pg-systems...` (and
+>    `pg-games`) in `compose.yaml`, replacing the image's MySQL default.
+> 2. **The seeder provisions the identities the grant needs** — org
+>    `hugmesh`, five bare role objects (`USER`, `PRODUCER`, `MOD`,
+>    `GAME-MASTER`, `ADMIN` — the JWT→authority converter,
+>    `CasdoorAuthorities` in hugmesh-commons, upper-cases and
+>    `ROLE_`-prefixes whatever the `roles` claim carries, so the Casdoor
+>    role NAME must be bare, never pre-prefixed), the `hugmesh-actions`
+>    OAuth app (`grantTypes` includes `password`; `tokenAttributes` maps
+>    Casdoor's `Roles` field into the JWT `roles` claim), and one test
+>    user per role tier (`actions-user`, `actions-producer`,
+>    `actions-mod`, `actions-game-master`, `actions-admin` — the last
+>    holds BOTH `ADMIN` and `GAME-MASTER` in Casdoor, because
+>    `SecurityConfig` gates `/actuator/**` on `hasRole("GAME-MASTER")`
+>    specifically and the admin scenario asserts `200` there; its token
+>    is filed only under the `ADMIN` key, never under `GAME-MASTER` too —
+>    that key's token comes from `actions-game-master`'s own mint).
+>    `CASDOOR_PLATFORM_CLIENT_SECRET` / `CASDOOR_GAMES_CLIENT_SECRET` are
+>    now generated per run by `bring-up-stack.sh` (`generate_client_secret`,
+>    `lib/e2e-password-resolve.sh`) and exported **before** `docker compose
+>    up`, so the app the seeder creates and the secret the running
+>    `hugmesh-actions` container was booted with match.
+> 3. **`origin` is pinned on both Casdoors** to the URL `hugmesh-actions`
+>    validates (`http://casdoor-systems:8000` /
+>    `http://casdoor-games:8000` — its own `CASDOOR_PLATFORM_URL` /
+>    `CASDOOR_GAMES_URL`), so every minted token's `iss` matches
+>    regardless of which host actually dialled Casdoor to mint it.
+>
+> **Scope.** This seeds ONLY the per-role-access-matrix tokens above,
+> systems Casdoor only. `cross-stack-admin-sync.feature`'s GAMES-side
+> identities (the lowercase `game-master`/`admin` role objects that
+> feature grants directly, on **both** Casdoors, via `helpers/casdoor.ts`)
+> are **not** provisioned by this seeder — that remains a separate,
+> open gap (tracked as a follow-up issue off hugmesh-actions#7).
+>
+> **Fail-closed, unchanged in spirit.** On ANY step failing —
+> unresolved password, unreachable Casdoor, a create/verify call that
+> doesn't come back right, a mint with no `access_token` — the whole
+> pass returns non-zero, `e2e/.tokens.json` is overwritten with an empty
+> `{}` (never a partial 3-of-5 map), and `bring-up-stack.sh` exits 1.
+> `E2E_ALLOW_ANONYMOUS_ONLY=1` skips the seeder outright and always
+> succeeds with a `⚠` warning banner, never a plain `✓`.
+>
+> **What is verified, and what is not.** `resolve_e2e_password`,
+> `generate_client_secret`, and the full `provision_and_mint_tokens`
+> control flow (create-before-mint ordering, idempotent re-run, and the
+> per-persona token-map regression above) are unit-tested **offline**
+> against a shimmed `curl` standing in for Casdoor
+> (`e2e/scripts/test-casdoor-seed.sh`) — no live Docker, no real
+> Casdoor. **The mint has never been run against a real
+> `casbin/casdoor` container in this session.** A person still needs to
+> run `bash e2e/scripts/bring-up-stack.sh` against the real
+> `compose.yaml` and confirm: it exits 0, `e2e/.tokens.json` holds five
+> non-empty, non-identical tokens, and `npm --prefix e2e test` then
+> passes all six `per-role-access.feature` scenarios (not just the
+> anonymous one).
 
 ## Password wiring
 
@@ -282,6 +316,15 @@ never generates or hardcodes a password. Precedence:
    naming `make stack-seed` and the exact path it looked for. There is no
    literal fallback — see the org e2e-password contract's Rule 4.
 
+`e2e/scripts/lib/e2e-password-resolve.sh`'s `resolve_e2e_password` is the
+bash-side port of the same precedence, used by `casdoor-seed.sh` to seed the
+five auth-matrix test users' passwords — same rule, same consumer-only
+posture, resolved by `bring-up-stack.sh` **before** `docker compose up`. The
+Casdoor OAuth app's own **client secret** (`CASDOOR_PLATFORM_CLIENT_SECRET` /
+`CASDOOR_GAMES_CLIENT_SECRET`) is a *different*, machine-only credential that
+same file's `generate_client_secret` DOES generate — it has no cross-repo
+consumer to stay in sync with, unlike the shared human test password.
+
 ## Known Gaps / TODO
 
 - **`GM_SYNC_INTERVAL_MS` is never actually shortened for e2e runs.**
@@ -305,3 +348,12 @@ never generates or hardcodes a password. Precedence:
   `GM_SYNC_INTERVAL_MS=2000` on the `hugmesh-actions` service for the
   e2e stack) or raise the helper's default/timeout to match the real
   60 s interval.
+
+- **`cross-stack-admin-sync.feature`'s Casdoor identities are still
+  unseeded.** `casdoor-seed.sh` (Decision 62) provisions only the
+  per-role-access-matrix's org/roles/app/users on the SYSTEMS Casdoor.
+  The sync feature's own `game-master` (systems) / `admin` (games) role
+  objects, and the games-side org/app, are not created by anything in
+  `bring-up-stack.sh` — `helpers/casdoor.ts`'s `ensureUser` /
+  `addRoleMember` calls assume they already exist. Tracked as a
+  follow-up off hugmesh-actions#7.
