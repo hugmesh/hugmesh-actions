@@ -94,9 +94,18 @@ grep -q '^  exit 1$' "$main_script" \
 check "bring-up-stack.sh sources the guard, gates on it, and exits 1 on failure"
 
 # ── Test 5: the old TODO(e2e-tokens) marker spelling is gone from source ──
-if grep -q 'TODO(e2e-tokens)' "$main_script"; then
-  fail "TODO(e2e-tokens) marker still present in bring-up-stack.sh"
-fi
-check "TODO(e2e-tokens) marker spelling is gone from bring-up-stack.sh"
+# Repo-wide, not just bring-up-stack.sh: PR hugmesh-actions#8's own review
+# caught the same literal string surviving untouched in root README.md while
+# the script and e2e/README.md had already been renamed. Sweep every
+# git-tracked file (git grep -I skips binaries, so it can't false-fail open
+# on those) except this test script, which necessarily quotes the retired
+# spelling to describe what it is checking for.
+repo_root="$(cd "$here/../.." && pwd)"
+set +e
+todo_hits="$(git -C "$repo_root" grep -n -I 'TODO(e2e-tokens)' -- . \
+  ':!e2e/scripts/test-token-mint-guard.sh' 2>/dev/null)"
+set -e
+[ -z "$todo_hits" ] || fail "TODO(e2e-tokens) marker still present in the tree: $todo_hits"
+check "TODO(e2e-tokens) marker spelling is gone from the whole repo, not just bring-up-stack.sh"
 
 echo "All $pass_count checks passed."

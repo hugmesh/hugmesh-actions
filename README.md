@@ -708,7 +708,10 @@ run `native:compile` on a GraalVM JDK to produce the binary.
   `hugmesh-actions`, and `CASDOOR_PLATFORM_CLIENT_SECRET` defaults to empty;
   and Casdoor's `origin` is unset, so a host-side mint would stamp
   `iss=http://localhost:8001` while this service validates
-  `issuer-uri=http://casdoor-systems:8000`. The `TODO(e2e-tokens)` block in
+  `issuer-uri=http://casdoor-systems:8000`. The `DEFERRED(e2e-tokens)` block in
   `e2e/scripts/bring-up-stack.sh` carries the detail, the fix references, and
   the open decision (own Casdoor seeder vs. consuming hugmesh-generator's
-  `tests/stack/seed-e2e.sh`, which targets a different topology).
+  `tests/stack/seed-e2e.sh`, which targets a different topology). Until that
+  decision lands, `bring-up-stack.sh` fails closed by default (exits
+  non-zero) instead of claiming success — see `e2e/README.md`'s "Token
+  wiring" section for the `E2E_ALLOW_ANONYMOUS_ONLY=1` opt-in.
