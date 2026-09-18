@@ -11,22 +11,31 @@
 #
 #   • NEITHER CASDOOR IS POSTGRES-BACKED. Both run the image's MySQL
 #     default, so the pg-systems / pg-games containers they `depends_on`
-#     hold no Casdoor data. -> TODO(e2e-tokens) below, item 1.
+#     hold no Casdoor data. -> DEFERRED(e2e-tokens) below, item 1.
 #   • NOTHING SEEDS THE hugmesh-actions ADMIN CLIENT. No org `hugmesh`,
 #     no roles, no OAuth app is provisioned; a fresh Casdoor holds only
-#     `built-in` / `app-built-in`. -> TODO(e2e-tokens) below, item 2.
+#     `built-in` / `app-built-in`. -> DEFERRED(e2e-tokens) below, item 2.
 #   • NO PER-ROLE BEARER TOKENS ARE MINTED. e2e/.tokens.json is written
 #     as an empty `{}` stub, so every authenticated scenario fails at the
 #     `is authenticated` step unless you export TOKEN_USER / TOKEN_PRODUCER
-#     / TOKEN_MOD / TOKEN_GAME_MASTER / TOKEN_ADMIN yourself.
-#     -> TODO(e2e-tokens) below.
+#     / TOKEN_MOD / TOKEN_GAME_MASTER / TOKEN_ADMIN yourself. BECAUSE OF
+#     THIS, this script now FAILS (non-zero exit) once the stack is up
+#     rather than reporting success over that empty stub — see
+#     E2E_ALLOW_ANONYMOUS_ONLY below. -> DEFERRED(e2e-tokens) below.
 #   • hugmesh-actions DOES NOT RUN WITH GM_SYNC_INTERVAL_MS=2000. There
 #     is no e2e compose overlay and compose.yaml sets no override, so the
 #     service runs application.yml's `${GM_SYNC_INTERVAL_MS:60000}` default
 #     of 60 s. -> "Known Gaps / TODO" in e2e/README.md.
 #
 # Usage:
-#   bash e2e/scripts/bring-up-stack.sh    # bring up + wait healthy
+#   bash e2e/scripts/bring-up-stack.sh    # bring up + wait healthy;
+#                                          # FAILS (exit 1) if per-role
+#                                          # tokens cannot be minted (they
+#                                          # never can today — see above)
+#   E2E_ALLOW_ANONYMOUS_ONLY=1 bash e2e/scripts/bring-up-stack.sh
+#                                          # same, but exit 0 anyway; only
+#                                          # the anonymous scenarios will
+#                                          # pass and this says so loudly
 #   bash e2e/scripts/bring-up-stack.sh stop   # tear down
 #
 # The script idempotently re-creates state — safe to re-run while
@@ -35,6 +44,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."  # repo root
+# shellcheck source=lib/token-mint-guard.sh
+source "$(dirname "$0")/lib/token-mint-guard.sh"
 
 case "${1:-up}" in
   stop|down)
@@ -88,7 +99,7 @@ done
 # e2e/features/steps/helpers/login-ui.ts. Casdoor's hosted login page is
 # never used anywhere in this suite.
 #
-# TODO(e2e-tokens): mint the five per-role bearer JWTs here and write them to
+# DEFERRED(e2e-tokens): mint the five per-role bearer JWTs here and write them to
 # e2e/.tokens.json, keyed by the EXACT role strings the .feature files pass to
 # `Given "<actor>" is authenticated with role "<ROLE>"` — USER / PRODUCER /
 # MOD / GAME-MASTER / ADMIN (tokenFor() in features/steps/auth-steps.ts does no
@@ -149,18 +160,21 @@ done
 #     hugmesh-generator's tests/qemu/seed-accounts.sh premint_token() already
 #     proved against a live Casdoor.
 #
-# Until then this writes an EMPTY object rather than a token map, and SAYS SO
-# instead of announcing a mint it did not perform.
-echo '{}' > e2e/.tokens.json
-echo "! Per-role bearer tokens were NOT minted — e2e/.tokens.json is an empty"
-echo "  stub. Authenticated scenarios fail at the 'is authenticated' step"
-echo "  unless you export TOKEN_USER / TOKEN_PRODUCER / TOKEN_MOD /"
-echo "  TOKEN_GAME_MASTER / TOKEN_ADMIN yourself. See the TODO(e2e-tokens)"
-echo "  block in this script for the three measured prerequisites."
-
-# NOTE: single quotes, not backticks. Backticks inside a double-quoted string are
-# COMMAND SUBSTITUTION, so the previous spelling actually RAN the whole Playwright
-# suite here and swallowed its output into this banner.
-echo "✓ Compose stack up (containers healthy). Run 'npm --prefix e2e test' to"
-echo "  execute the suite — without hand-supplied tokens only the anonymous"
-echo "  scenarios can pass."
+# Until then this writes an EMPTY object rather than a token map, and FAILS
+# LOUDLY rather than announcing a mint it did not perform. mint_tokens_or_fail
+# (lib/token-mint-guard.sh) is what makes that decision and is unit-tested in
+# isolation by test-token-mint-guard.sh — see that file to exercise both the
+# default-fail and E2E_ALLOW_ANONYMOUS_ONLY=1 paths without a live stack.
+if mint_tokens_or_fail e2e/.tokens.json; then
+  # NOTE: single quotes, not backticks. Backticks inside a double-quoted string
+  # are COMMAND SUBSTITUTION, so the previous spelling actually RAN the whole
+  # Playwright suite here and swallowed its output into this banner.
+  echo "⚠ Compose stack up (containers healthy), ANONYMOUS-ONLY. Run 'npm"
+  echo "  --prefix e2e test' to execute the suite — only the anonymous"
+  echo "  scenarios can pass; see the warning above."
+else
+  echo "✗ bring-up-stack.sh FAILED: per-role bearer tokens were not minted." >&2
+  echo "  Containers are up (docker compose ps to check) but this is NOT a" >&2
+  echo "  success — see the error above for how to proceed." >&2
+  exit 1
+fi

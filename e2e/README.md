@@ -35,9 +35,12 @@ Run all commands from the repository root.
 
 ```bash
 # 1. Start casdoor-systems, casdoor-games, and hugmesh-actions via Docker Compose.
-bash e2e/scripts/bring-up-stack.sh
+#    Per-role tokens cannot be minted today (see "Token wiring" below), so
+#    this now FAILS (exit 1) unless you explicitly acknowledge that:
+E2E_ALLOW_ANONYMOUS_ONLY=1 bash e2e/scripts/bring-up-stack.sh
 
-# 2. Install dependencies and run the full BDD suite.
+# 2. Install dependencies and run the full BDD suite (only the anonymous
+#    scenarios can pass without hand-supplied TOKEN_* env vars — see below).
 npm --prefix e2e install
 npm --prefix e2e test
 
@@ -214,15 +217,22 @@ It looks for tokens in the following order:
 
 > **Note:** The token-generation step in `bring-up-stack.sh` is
 > currently a stub — it writes `e2e/.tokens.json` as an empty `{}` (the
-> `TODO(e2e-tokens)` block in `e2e/scripts/bring-up-stack.sh`). Until it
-> lands, every authenticated scenario **fails** at the `Given "<role>" is
-> authenticated` step — `tokenFor()` throws (`No token found for role
-> …`) rather than skipping. See the "What is actually asserted today"
-> note above for the per-role-access-matrix consequence of this.
+> `DEFERRED(e2e-tokens)` block in `e2e/scripts/bring-up-stack.sh`). Because
+> of that, **`bring-up-stack.sh` itself now fails (exit 1) once the stack
+> is healthy**, rather than reporting success over that empty stub — pass
+> `E2E_ALLOW_ANONYMOUS_ONLY=1` to bring the stack up anyway (the script
+> prints a `⚠` warning banner, never a plain `✓`, when you do). Either
+> way, until the mint lands, every authenticated scenario **fails** at the
+> `Given "<role>" is authenticated` step — `tokenFor()` throws (`No token
+> found for role …`) rather than skipping. See the "What is actually
+> asserted today" note above for the per-role-access-matrix consequence of
+> this. The fail/allow decision lives in
+> `e2e/scripts/lib/token-mint-guard.sh`, unit-tested by
+> `e2e/scripts/test-token-mint-guard.sh` without needing a live stack.
 >
 > **It is not just a missing token call.** Measured 2026-09-09 against
 > `casbin/casdoor:3.80.0` and this repo's `compose.yaml`, three
-> prerequisites are unmet, and the script's `TODO(e2e-tokens)` block
+> prerequisites are unmet, and the script's `DEFERRED(e2e-tokens)` block
 > carries the detail:
 >
 > 1. **Neither Casdoor is wired to its Postgres.** The image default is
