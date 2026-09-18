@@ -690,28 +690,28 @@ run `native:compile` on a GraalVM JDK to produce the binary.
   deliberate dodge (empty body fails `@Valid` before the
   `app.actions.gh-org-admin.enabled` check, which defaults `false`, is ever
   reached) so the scenario only proves "admin is past the auth gate," not the
-  grant outcome. Even that doesn't execute yet: `e2e/scripts/bring-up-stack.sh`
-  writes `e2e/.tokens.json` as an empty stub, so every authenticated scenario
-  (including this one) fails at the `Given "<role>" is authenticated` step
-  before the HTTP call ever fires — see e2e/README.md's "Token wiring" and
-  "What is actually asserted today" notes. Wiring real per-role tokens is the
-  actual blocker; flipping `GH_ORG_ADMIN_ENABLED=true` alone would not make
+  grant outcome. Flipping `GH_ORG_ADMIN_ENABLED=true` alone would not make
   this specific scenario assert `200`, since it never sends a body that could
   pass the grant.
-- **The e2e token stub is blocked on stack provisioning, not on a missing
-  token call.** Measured 2026-09-09 against `casbin/casdoor:3.80.0` plus this
-  repo's `compose.yaml`: neither Casdoor is wired to the Postgres it
-  `depends_on` (the image default is `driverName = mysql` and `compose.yaml`
-  sets no `driverName`/`dataSourceName`); the image ships no `init_data.json`
-  and none is mounted, so a fresh Casdoor has only org `built-in` / app
-  `app-built-in` — no org `hugmesh`, no role objects, no app with clientId
-  `hugmesh-actions`, and `CASDOOR_PLATFORM_CLIENT_SECRET` defaults to empty;
-  and Casdoor's `origin` is unset, so a host-side mint would stamp
-  `iss=http://localhost:8001` while this service validates
-  `issuer-uri=http://casdoor-systems:8000`. The `DEFERRED(e2e-tokens)` block in
-  `e2e/scripts/bring-up-stack.sh` carries the detail, the fix references, and
-  the open decision (own Casdoor seeder vs. consuming hugmesh-generator's
-  `tests/stack/seed-e2e.sh`, which targets a different topology). Until that
-  decision lands, `bring-up-stack.sh` fails closed by default (exits
-  non-zero) instead of claiming success — see `e2e/README.md`'s "Token
-  wiring" section for the `E2E_ALLOW_ANONYMOUS_ONLY=1` opt-in.
+- **The e2e per-role token mint (Decision 62, operator, 2026-09-18,
+  hugmesh-actions#7) is implemented but UNVERIFIED against a live stack.**
+  `e2e/scripts/lib/casdoor-seed.sh` now provisions the systems Casdoor (org,
+  five role objects, the `hugmesh-actions` OAuth app, one user per role
+  tier) and mints five real per-role bearer tokens into `e2e/.tokens.json`
+  — the three prerequisites measured 2026-09-09 (neither Casdoor wired to
+  its Postgres, no identities provisioned, `origin` unset so a host-side
+  mint's `iss` wouldn't match `issuer-uri=http://casdoor-systems:8000`) are
+  all fixed in `compose.yaml` and the seeder. Proven **offline only** —
+  `e2e/scripts/test-casdoor-seed.sh` exercises the full control flow against
+  a shimmed `curl`, never a real `casbin/casdoor` container. `bring-up-
+  stack.sh` still fails closed by default (exits non-zero, never a partial
+  token map) if any step doesn't complete — see `e2e/README.md`'s "Token
+  wiring" section for the detail and the `E2E_ALLOW_ANONYMOUS_ONLY=1`
+  opt-out. **A person still needs to run it against the real compose stack**
+  and confirm `npm --prefix e2e test` passes all six `per-role-access.feature`
+  scenarios, not just the anonymous one.
+- **`cross-stack-admin-sync.feature`'s own Casdoor identities remain
+  unseeded** — Decision 62's seeder covers only the per-role-access-matrix
+  on the systems Casdoor; the sync feature's `game-master`/`admin` role
+  objects on both Casdoors are a separate, still-open gap. See
+  `e2e/README.md`'s Known Gaps.

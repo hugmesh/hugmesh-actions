@@ -7,6 +7,23 @@
 #
 # Note: the actions service itself is stateless — restarting it
 # replays the next sync tick against the live Casdoor state.
+#
+# CASDOOR WIRING (Decision 62, operator, 2026-09-18, hugmesh-actions#7 —
+# prerequisites for e2e/scripts/lib/casdoor-seed.sh's real per-role
+# token mint):
+#   * driverName/dataSourceName point BOTH Casdoors at their OWN
+#     `depends_on` Postgres. Without this the image's MySQL default
+#     (`root:123456@tcp(localhost:3306)/`) targets the docker host, not
+#     pg-systems/pg-games, and every identity the seeder creates is lost
+#     on the next `down -v` even though the Postgres volume persists.
+#   * origin PINS each Casdoor's token `iss` to the URL hugmesh-actions
+#     validates (its own CASDOOR_PLATFORM_URL/CASDOOR_GAMES_URL below),
+#     regardless of which host a caller reaches Casdoor through. Without
+#     it Casdoor derives `iss` from the REQUEST HOST: a mint via the
+#     published localhost port would stamp iss=http://localhost:8001/2,
+#     and every authenticated scenario would 401 holding a perfectly
+#     good token. Same trap and same fix hugmesh-generator documents in
+#     tests/stack/compose.real.yaml.
 
 services:
 
@@ -45,6 +62,9 @@ services:
         condition: service_healthy
     environment:
       RUNNING_IN_DOCKER: "true"
+      driverName: postgres
+      dataSourceName: "user=casdoor password=casdoor host=pg-systems port=5432 sslmode=disable dbname=casdoor"
+      origin: "http://casdoor-systems:8000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
       interval: 10s
@@ -61,6 +81,9 @@ services:
         condition: service_healthy
     environment:
       RUNNING_IN_DOCKER: "true"
+      driverName: postgres
+      dataSourceName: "user=casdoor password=casdoor host=pg-games port=5432 sslmode=disable dbname=casdoor"
+      origin: "http://casdoor-games:8000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
       interval: 10s
