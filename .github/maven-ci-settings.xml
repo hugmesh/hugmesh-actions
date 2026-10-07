@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CI-ONLY Maven settings that resolve the PRIVATE net.hugmesh artifacts from GitHub
+  Packages. It is selected with the build argument MAVEN_SETTINGS=.github/maven-ci-settings.xml
+  by a GitHub Actions image build and by NOTHING else. The committed root settings.xml
+  (GitLab-shaped, the same file every sibling BFF ships) stays the default, because the
+  local compose stack and the kind lane resolve through it (and through the
+  scripts/patch-stack-src.sh mirror override that only touches that file).
+
+  WHICH ARTIFACTS: hugmesh-actions has spring-boot-starter-parent as its parent, so the
+  only private artifact it needs is net.hugmesh:hugmesh-commons:2.1.0. Reading
+  hugmesh-commons' own pom pulls its parent net.hugmesh:hugmesh-parent:2.8.0. Each
+  GitHub Packages Maven registry serves ONE repository's packages
+  (https://maven.pkg.github.com/<owner>/<repo>), so the two are two repositories.
+  hugmesh-build-config (the analyser rulesets) is a plugin dependency of hugmesh-parent's
+  build only; a consumer never resolves it.
+
+  WHY NOT A <repositories> BLOCK IN pom.xml: maven.pkg.github.com answers 401 to an
+  unauthenticated read, so declaring it in the pom would break every developer build and
+  the local compose lane. A settings file chosen by path adds the repository for CI only.
+
+  CREDENTIAL: no secret is committed. The Dockerfile reads the BuildKit secret
+  `ci_job_token` (the same secret id the GitLab path uses) and exports it as
+  CI_JOB_TOKEN for the one RUN that runs maven; MAVEN_REGISTRY_ACTOR is a plain build
+  argument. For a cross-repository package read the token must be one that can read
+  those packages: the automatic GITHUB_TOKEN can only if each package names this
+  repository under "Manage Actions access", otherwise a PAT with read:packages.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <servers>
+    <server>
+      <id>github-hugmesh-commons</id>
+      <username>${env.MAVEN_REGISTRY_ACTOR}</username>
+      <password>${env.CI_JOB_TOKEN}</password>
+    </server>
+    <server>
+      <id>github-hugmesh-parent</id>
+      <username>${env.MAVEN_REGISTRY_ACTOR}</username>
+      <password>${env.CI_JOB_TOKEN}</password>
+    </server>
+  </servers>
+
+  <profiles>
+    <profile>
+      <id>github-hugmesh-packages</id>
+      <repositories>
+        <repository>
+          <id>github-hugmesh-commons</id>
+          <url>https://maven.pkg.github.com/hugmesh/hugmesh-commons</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+        <repository>
+          <id>github-hugmesh-parent</id>
+          <url>https://maven.pkg.github.com/hugmesh/hugmesh-parent</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
+
+  <activeProfiles>
+    <activeProfile>github-hugmesh-packages</activeProfile>
+  </activeProfiles>
+</settings>
