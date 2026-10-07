@@ -9,21 +9,25 @@
 FROM eclipse-temurin:25-jdk AS build
 
 # PRIVATE DEPENDENCY (hugmesh-commons): this service depends on
-# net.hugmesh:hugmesh-commons, which is NOT on Maven Central. The build stage
-# resolves it through the COMMITTED settings.xml (the same file every sibling BFF
-# ships): the GitLab group package registry, authenticated with CI_JOB_TOKEN.
-# The token is a BuildKit SECRET (never an ARG, never an ENV, never a layer):
+# net.hugmesh:hugmesh-commons, which is NOT on Maven Central. Two registry paths,
+# chosen per build by which BuildKit secret is mounted. A secret is never an ARG,
+# never an ENV, never a layer.
+#
+#  1. GITHUB ACTIONS release (.github/workflows/release.yml): the secret
+#     `packages_read_token` (the PACKAGES_READ_TOKEN repository secret, a classic
+#     PAT with read:packages, decision 90a = B in hugmesh-commons/RELEASING.md
+#     section 6) selects .github/maven-ci-settings.xml, which resolves
+#     hugmesh-commons and its parent hugmesh-parent from GitHub Packages.
+#
+#  2. EVERYTHING ELSE (GitLab CI, the local compose stack, a developer build): the
+#     committed root settings.xml, the same file every sibling BFF ships, resolves
+#     from the GitLab group registry. GitLab CI also passes the secret `ci_job_token`;
+#     the local stack (tests/stack/m2-bootstrap.sh in hugmesh-generator) passes only
+#     the two build args because its throwaway registry ignores auth.
 #
 #   docker build --build-arg CI_API_V4_URL=... --build-arg GITLAB_GROUP_ID=... \
 #                --secret id=ci_job_token,env=CI_JOB_TOKEN .
-#
-# The local compose stack passes only the two build args (its throwaway registry
-# ignores auth). A GitHub Actions image build instead selects the GitHub Packages
-# settings file, with the same secret id carrying a token that can read the
-# packages:
-#
-#   --build-arg MAVEN_SETTINGS=.github/maven-ci-settings.xml \
-#   --build-arg MAVEN_REGISTRY_ACTOR=<user> --secret id=ci_job_token,env=<token>
+#   docker build --secret id=packages_read_token,env=PACKAGES_READ_TOKEN .
 #
 # This file used to be patched by hugmesh-generator/scripts/patch-stack-src.sh
 # (hugmesh-local-settings.xml + MAVEN_ARGS), whose settings file was never
@@ -31,34 +35,55 @@ FROM eclipse-temurin:25-jdk AS build
 # ARG pair here makes that patcher a no-op for this repo.
 ARG CI_API_V4_URL
 ARG GITLAB_GROUP_ID
-ARG MAVEN_SETTINGS=settings.xml
-ARG MAVEN_REGISTRY_ACTOR
+ARG UPSTREAM_PACKAGES_ACTOR=github-actions
 ENV CI_API_V4_URL=${CI_API_V4_URL} \
-    GITLAB_GROUP_ID=${GITLAB_GROUP_ID} \
-    MAVEN_REGISTRY_ACTOR=${MAVEN_REGISTRY_ACTOR}
+    GITLAB_GROUP_ID=${GITLAB_GROUP_ID}
 WORKDIR /work
 COPY mvnw mvnw.cmd ./
 COPY .mvn .mvn
 COPY pom.xml settings.xml ./
 COPY .github/maven-ci-settings.xml .github/maven-ci-settings.xml
-# Every maven call below is `-s settings.xml`; choosing the GitHub file just
-# replaces that in-image copy (the checkout is untouched).
-RUN if [ "${MAVEN_SETTINGS}" != "settings.xml" ]; then cp "${MAVEN_SETTINGS}" settings.xml; fi
-# The token is exported only inside the RUN that reads the secret. No `-x`: a
-# traced `export CI_JOB_TOKEN=...` would print it into the build log.
+# Dependencies first, in their own cache layer. No `set -x`: it would echo the
+# exported token into the build log. A packages_read_token that is mounted but EMPTY
+# is an error, not a silent fall-back to the GitLab path (that would die later as a
+# "Non-resolvable parent POM ... /groups//" and read as "unpublished").
 RUN --mount=type=secret,id=ci_job_token \
-    sh -euc ' \
-      if [ -f /run/secrets/ci_job_token ]; then \
-        CI_JOB_TOKEN="$(cat /run/secrets/ci_job_token)"; export CI_JOB_TOKEN; \
+    --mount=type=secret,id=packages_read_token \
+    sh -euc '\
+      settings=settings.xml; \
+      if [ -e /run/secrets/packages_read_token ]; then \
+        if [ ! -s /run/secrets/packages_read_token ]; then \
+          echo "FATAL: secret packages_read_token is mounted but empty (is PACKAGES_READ_TOKEN set?)" >&2; \
+          exit 1; \
+        fi; \
+        UPSTREAM_PACKAGES_TOKEN="$(cat /run/secrets/packages_read_token)"; \
+        export UPSTREAM_PACKAGES_TOKEN UPSTREAM_PACKAGES_ACTOR; \
+        settings=.github/maven-ci-settings.xml; \
+      elif [ -f /run/secrets/ci_job_token ]; then \
+        CI_JOB_TOKEN="$(cat /run/secrets/ci_job_token)"; \
+        export CI_JOB_TOKEN; \
       fi; \
-      ./mvnw -B -s settings.xml dependency:go-offline'
+      echo "maven settings: ${settings}"; \
+      ./mvnw -B -s "${settings}" dependency:go-offline'
 COPY src src
 RUN --mount=type=secret,id=ci_job_token \
-    sh -euc ' \
-      if [ -f /run/secrets/ci_job_token ]; then \
-        CI_JOB_TOKEN="$(cat /run/secrets/ci_job_token)"; export CI_JOB_TOKEN; \
+    --mount=type=secret,id=packages_read_token \
+    sh -euc '\
+      settings=settings.xml; \
+      if [ -e /run/secrets/packages_read_token ]; then \
+        if [ ! -s /run/secrets/packages_read_token ]; then \
+          echo "FATAL: secret packages_read_token is mounted but empty (is PACKAGES_READ_TOKEN set?)" >&2; \
+          exit 1; \
+        fi; \
+        UPSTREAM_PACKAGES_TOKEN="$(cat /run/secrets/packages_read_token)"; \
+        export UPSTREAM_PACKAGES_TOKEN UPSTREAM_PACKAGES_ACTOR; \
+        settings=.github/maven-ci-settings.xml; \
+      elif [ -f /run/secrets/ci_job_token ]; then \
+        CI_JOB_TOKEN="$(cat /run/secrets/ci_job_token)"; \
+        export CI_JOB_TOKEN; \
       fi; \
-      ./mvnw -B -s settings.xml package -DskipTests'
+      echo "maven settings: ${settings}"; \
+      ./mvnw -B -s "${settings}" package -DskipTests'
 
 FROM eclipse-temurin:25-jre
 # curl is required by this image's docker-compose HEALTHCHECK (actuator/health/readiness);

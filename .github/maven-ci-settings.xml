@@ -1,30 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  CI-ONLY Maven settings that resolve the PRIVATE net.hugmesh artifacts from GitHub
-  Packages. It is selected with the build argument MAVEN_SETTINGS=.github/maven-ci-settings.xml
-  by a GitHub Actions image build and by NOTHING else. The committed root settings.xml
-  (GitLab-shaped, the same file every sibling BFF ships) stays the default, because the
-  local compose stack and the kind lane resolve through it (and through the
-  scripts/patch-stack-src.sh mirror override that only touches that file).
+  CI-ONLY Maven settings for the release-image build. The Dockerfile uses this file ONLY
+  when the BuildKit secret `packages_read_token` is mounted (the .github/workflows/release.yml
+  path); every other build (GitLab CI, the local compose lane via m2-bootstrap.sh, a
+  developer's ./mvnw) keeps using the repo-root settings.xml and never reads this file.
 
-  WHICH ARTIFACTS: hugmesh-actions has spring-boot-starter-parent as its parent, so the
-  only private artifact it needs is net.hugmesh:hugmesh-commons:2.1.0. Reading
-  hugmesh-commons' own pom pulls its parent net.hugmesh:hugmesh-parent:2.8.0. Each
-  GitHub Packages Maven registry serves ONE repository's packages
-  (https://maven.pkg.github.com/<owner>/<repo>), so the two are two repositories.
-  hugmesh-build-config (the analyser rulesets) is a plugin dependency of hugmesh-parent's
-  build only; a consumer never resolves it.
+  WHY A SECOND SETTINGS FILE: the root settings.xml points at the retired GitLab group
+  registry (${env.CI_API_V4_URL}/groups/${env.GITLAB_GROUP_ID}/-/packages/maven). On a GitHub
+  runner both variables are empty, so the parent POM of hugmesh-commons resolves from
+  "/groups//-/packages/maven" and the build dies resolving
+  net.hugmesh:hugmesh-parent:pom:2.8.0.
+
+  WHICH ARTIFACTS: hugmesh-actions has spring-boot-starter-parent as its parent, so the only
+  private artifact it needs is net.hugmesh:hugmesh-commons:2.1.0. Reading hugmesh-commons'
+  own pom pulls its parent net.hugmesh:hugmesh-parent:2.8.0. Each GitHub Packages Maven
+  registry serves ONE repository's packages (https://maven.pkg.github.com/<owner>/<repo>),
+  so the two are two registries. hugmesh-build-config (the analyser rulesets) is a plugin
+  dependency of hugmesh-parent's own build only; a consumer never resolves it, which is why
+  it is absent here although hugmesh-mesh-bff-api's copy of this file lists it.
 
   WHY NOT A <repositories> BLOCK IN pom.xml: maven.pkg.github.com answers 401 to an
-  unauthenticated read, so declaring it in the pom would break every developer build and
-  the local compose lane. A settings file chosen by path adds the repository for CI only.
+  unauthenticated read, so declaring it in the pom would break every developer build and the
+  local compose lane. A settings file chosen by path adds the repository for CI only.
 
-  CREDENTIAL: no secret is committed. The Dockerfile reads the BuildKit secret
-  `ci_job_token` (the same secret id the GitLab path uses) and exports it as
-  CI_JOB_TOKEN for the one RUN that runs maven; MAVEN_REGISTRY_ACTOR is a plain build
-  argument. For a cross-repository package read the token must be one that can read
-  those packages: the automatic GITHUB_TOKEN can only if each package names this
-  repository under "Manage Actions access", otherwise a PAT with read:packages.
+  CREDENTIAL: maven.pkg.github.com requires authentication even to read, and the automatic
+  GITHUB_TOKEN cannot read another repository's package. The credential is the classic
+  read:packages PAT held in the PACKAGES_READ_TOKEN secret (decision 90a = B; see
+  hugmesh-commons/RELEASING.md section 6). release.yml hands it to the build as a BuildKit
+  secret and the Dockerfile exports it for the one RUN that runs maven. NO SECRET IS
+  COMMITTED HERE.
 -->
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -32,14 +36,14 @@
 
   <servers>
     <server>
-      <id>github-hugmesh-commons</id>
-      <username>${env.MAVEN_REGISTRY_ACTOR}</username>
-      <password>${env.CI_JOB_TOKEN}</password>
+      <id>github-hugmesh-parent</id>
+      <username>${env.UPSTREAM_PACKAGES_ACTOR}</username>
+      <password>${env.UPSTREAM_PACKAGES_TOKEN}</password>
     </server>
     <server>
-      <id>github-hugmesh-parent</id>
-      <username>${env.MAVEN_REGISTRY_ACTOR}</username>
-      <password>${env.CI_JOB_TOKEN}</password>
+      <id>github-hugmesh-commons</id>
+      <username>${env.UPSTREAM_PACKAGES_ACTOR}</username>
+      <password>${env.UPSTREAM_PACKAGES_TOKEN}</password>
     </server>
   </servers>
 
@@ -48,14 +52,14 @@
       <id>github-hugmesh-packages</id>
       <repositories>
         <repository>
-          <id>github-hugmesh-commons</id>
-          <url>https://maven.pkg.github.com/hugmesh/hugmesh-commons</url>
+          <id>github-hugmesh-parent</id>
+          <url>https://maven.pkg.github.com/hugmesh/hugmesh-parent</url>
           <releases><enabled>true</enabled></releases>
           <snapshots><enabled>false</enabled></snapshots>
         </repository>
         <repository>
-          <id>github-hugmesh-parent</id>
-          <url>https://maven.pkg.github.com/hugmesh/hugmesh-parent</url>
+          <id>github-hugmesh-commons</id>
+          <url>https://maven.pkg.github.com/hugmesh/hugmesh-commons</url>
           <releases><enabled>true</enabled></releases>
           <snapshots><enabled>false</enabled></snapshots>
         </repository>
