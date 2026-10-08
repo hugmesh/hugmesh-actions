@@ -21,12 +21,16 @@ e2e/
 │   ├── steps/
 │   │   ├── sync-steps.ts
 │   │   ├── auth-steps.ts
-│   │   └── helpers/{casdoor.ts, actions.ts, login-ui.ts}
+│   │   └── helpers/{casdoor.ts, actions.ts, login-ui.ts, e2e-credentials.ts}
 │   └── support/fixtures.ts                   ← AfterStep PNG hook
 ├── playwright.config.ts                      ← bdd project, video=on
-├── scripts/bring-up-stack.sh                 ← docker compose orchestrator
+├── scripts/
+│   ├── bring-up-stack.sh                     ← docker compose orchestrator
+│   ├── lib/{casdoor-seed.sh, e2e-password-resolve.sh, token-mint-guard.sh}
+│   └── test-{casdoor-seed,token-mint-guard}.sh  ← offline tests of the above
 ├── package.json
-└── results/                                  ← HTML report + videos
+├── .tokens.json                              ← written by bring-up-stack.sh (git-ignored)
+└── results/                                  ← HTML report + videos (git-ignored)
 ```
 
 ## Running
@@ -42,8 +46,9 @@ Run all commands from the repository root.
 #    seeding/minting doesn't fully complete:
 bash e2e/scripts/bring-up-stack.sh
 
-#    To skip the seeder entirely and run only the anonymous scenarios
-#    (no Casdoor provisioning attempted):
+#    To skip the seeder and run only the anonymous scenarios (no Casdoor
+#    provisioning attempted). The password check above still runs first, so
+#    this also fails (exit 1) when no password resolves:
 E2E_ALLOW_ANONYMOUS_ONLY=1 bash e2e/scripts/bring-up-stack.sh
 
 # 2. Install dependencies and run the full BDD suite.
@@ -74,7 +79,7 @@ sequenceDiagram
     participant P as /actuator/metrics
 
     T->>S: seed role state (grant or revoke game-master)
-    T->>T: wait out one scheduled tick\n(GM_SYNC_INTERVAL_MS, shortened to 2s in e2e)
+    T->>T: wait 2.2 x GM_SYNC_INTERVAL_MS (4.4 s when the var is unset)\nthe service itself ticks every 60 s (see Known Gaps)
     A->>S: read current game-masters
     A->>G: read current admins
     A->>G: apply diff (add / remove / skip)
@@ -91,23 +96,25 @@ sequenceDiagram
 
 ### `per-role-access.feature` (6 scenarios)
 
-One scenario per role tier hits three endpoints that each require a
-different authority level, asserting the correct HTTP status for that
-tier. A regression in any `SecurityConfig` path-matcher causes the
-corresponding scenario to fail immediately.
+One scenario per role tier (anonymous, player, producer, mod, game-master,
+admin) hits protected endpoints and asserts the HTTP status for that tier. A
+regression in any `SecurityConfig` path-matcher causes the
+corresponding scenario to fail immediately. The table shows what the scenarios
+assert; `—` means no scenario checks that cell.
 
 | Endpoint | Required role | Anonymous | player | producer | mod | game-master | admin |
 |---|---|---|---|---|---|---|---|
-| `GET /actuator/health` | public | 200 | 200 | 200 | 200 | 200 | 200 |
-| `GET /actuator/metrics` | `ROLE_GAME-MASTER` | 401 | 403 | 403 | 403 | 200 | 200 |
-| `POST /api/registration/github-org-admin/evaluate` | `ROLE_ADMIN` | 401 | 403 | 403 | 403 | 403 | 200 |
+| `GET /actuator/health` | public | 200 | 200 | — | — | — | — |
+| `GET /actuator/metrics` | `ROLE_GAME-MASTER` | 401 or 403 | 403 | 403 | 403 | 200 | 200 |
+| `POST /api/registration/github-org-admin/evaluate` | `ROLE_ADMIN` | 401 or 403 | 403 | 403 | 403 | 403 | 400, 422 or 500 |
 
-> **Note:** The `200` for `admin` above is the target behaviour once the
-> GitHub-org-admin feature is enabled. The feature's master switch
-> (`app.actions.gh-org-admin.enabled` / `GH_ORG_ADMIN_ENABLED`) defaults to
-> `false` and is not set in `compose.yaml` or `bring-up-stack.sh`, so as the
-> stack is wired today an admin caller gets `404` instead. See the top-level
-> README's Known Gaps section.
+> **Note:** The admin cell is "past the auth gate", not the grant. The scenario
+> POSTs `{}`, which fails `@Valid` on the request body before the feature's master
+> switch is read, so an admin caller gets `400` today. A valid body would reach the
+> switch (`app.actions.gh-org-admin.enabled` / `GH_ORG_ADMIN_ENABLED`), which
+> defaults to `false` and is not set in `compose.yaml` or `bring-up-stack.sh`; the
+> caller would then get `404`. The `200` grant outcome needs both the switch on
+> and a valid body. See the top-level README's Known Gaps section.
 
 > **What is actually asserted today.** `bring-up-stack.sh` now mints a
 > real per-role bearer token for all five authenticated tiers (see
@@ -130,7 +137,7 @@ Every run writes the following artifacts under `e2e/results/`:
 | Artifact | Path | Notes |
 |---|---|---|
 | HTML report | `html/index.html` | Browsable; open with `npm --prefix e2e run report` |
-| Step screenshots | `artifacts/<test>/attachments/step-NN-….png` | One PNG per Gherkin step, linked inside the HTML report |
+| Step screenshots | `artifacts/<test>/NN-<step title>.png` | One PNG per Gherkin step, linked inside the HTML report |
 | Scenario video | `artifacts/<test>/video.webm` | Captured for every scenario, not just failures |
 | Trace archive | `artifacts/<test>/trace.zip` | Failure only; replay with `npx playwright show-trace <path>` |
 
@@ -173,9 +180,11 @@ The helper lives in `helpers/login-ui.ts`:
 `/bff/login` through be-gateway directly — still OUR contract endpoint, never
 Casdoor's hosted form — for asserting the response contract without a browser.
 
-> **login-ui dependency.** The browser helper drives login-ui test ids
-> `login-username` / `login-password` / `login-submit`, plus
-> `login-mfa-passcode` for the MFA follow-up (login-ui will add this one). The
+> **login-ui dependency.** No scenario calls `loginViaNativeForm` or `bffLogin`
+> yet; the helpers exist for the browser-login scenarios to come. They drive
+> login-ui test ids `login-username` / `login-password` / `login-submit`, which
+> login-ui has. The helper's MFA field `login-mfa-passcode` does not exist in
+> login-ui: its MFA form carries `login-mfa-code` and `login-mfa-submit`. The
 > browser-login helpers target the full platform stack via `LOGIN_UI_URL`
 > (default `http://localhost:8081`) and `GATEWAY_BASE_URL` (default
 > `http://localhost:8080`); the actions-only compose in this repo does not ship
@@ -276,8 +285,10 @@ It looks for tokens in the following order:
 > doesn't come back right, a mint with no `access_token` — the whole
 > pass returns non-zero, `e2e/.tokens.json` is overwritten with an empty
 > `{}` (never a partial 3-of-5 map), and `bring-up-stack.sh` exits 1.
-> `E2E_ALLOW_ANONYMOUS_ONLY=1` skips the seeder outright and always
-> succeeds with a `⚠` warning banner, never a plain `✓`.
+> `E2E_ALLOW_ANONYMOUS_ONLY=1` skips the seeder outright, writes an empty
+> `{}` map, and exits 0 with a `⚠` warning banner, never a plain `✓`. It does not
+> skip the e2e-password check, which runs first and exits 1 when nothing
+> resolves.
 >
 > **What is verified, and what is not.** `resolve_e2e_password`,
 > `generate_client_secret`, and the full `provision_and_mint_tokens`
@@ -307,11 +318,14 @@ never generates or hardcodes a password. Precedence:
    whatever process generated it first.
 3. **The run-state credentials file** — `$E2E_CREDENTIALS_FILE` if set,
    otherwise the nearest `.e2e-credentials` walking up from `process.cwd()`
-   (so it finds the one at repo root when tests run from `e2e/`). Same two
+   (so it finds one at this repo's root when tests run from `e2e/`). Same two
    keys, `KEY=value` lines. This repo only reads this file — it is written
    by `make stack-seed` (hugmesh-generator's `e2e_password_ensure()`) — and
    never fails just because the file doesn't exist yet; it falls through to
-   the next step.
+   the next step. `make stack-seed` writes the file at the *generator's* root
+   (`tests/stack/e2e-password.sh`: `E2E_CREDENTIALS_FILE` defaults to
+   `<generator root>/.e2e-credentials`). A walk up from this checkout never reaches a sibling
+   repo, so point `E2E_CREDENTIALS_FILE` at that file, or set `E2E_PASSWORD`.
 4. **Throw.** If nothing above resolves, `resolveE2ePassword()` throws
    naming `make stack-seed` and the exact path it looked for. There is no
    literal fallback — see the org e2e-password contract's Rule 4.
@@ -344,7 +358,9 @@ consumer to stay in sync with, unlike the shared human test password.
   today the sync scenarios wait roughly 4.4 s for a tick that actually
   fires every 60 s, which reads as a likely source of flakes/failures
   in `cross-stack-admin-sync.feature` rather than the documented
-  guaranteed tick crossing. Either add the missing compose override (set
+  guaranteed tick crossing. (The header comment of
+  `cross-stack-admin-sync.feature` also claims a 5 s interval; that is
+  equally untrue.) Either add the missing compose override (set
   `GM_SYNC_INTERVAL_MS=2000` on the `hugmesh-actions` service for the
   e2e stack) or raise the helper's default/timeout to match the real
   60 s interval.
