@@ -657,6 +657,23 @@ The pipeline has three stages (`stages: [test, build, pentest]`):
    without blocking the pipeline. `make pentest` runs the same posture
    locally as a pre-push gate (see the `Makefile`).
 
+### GitHub release image (manual)
+
+`.github/workflows/release.yml` is a `workflow_dispatch`-only workflow that
+builds this `Dockerfile` on a GitHub-hosted runner and pushes
+`ghcr.io/hugmesh/hugmesh-actions:<sha>` (and `:latest` only when dispatched
+from `main`). The private `net.hugmesh:hugmesh-commons` (and its parent
+`hugmesh-parent`) come from GitHub Packages through
+`.github/maven-ci-settings.xml`, selected by the BuildKit secret
+`packages_read_token`. That secret is the **`PACKAGES_READ_TOKEN` repository
+secret**: a classic personal access token with `read:packages` (operator
+decision 90a = B, `hugmesh-commons/RELEASING.md` section 6). The workflow's
+preflight step fails by name when it is unset or cannot read the two
+registries. Without that secret mounted, the `Dockerfile` keeps using the
+repo-root `settings.xml` (GitLab group registry), which is what GitLab CI and
+the local compose stack (`hugmesh-generator/docs/LOCAL-STACK.md`, "Cold
+builds") rely on.
+
 ## Adding new actions
 
 Each action is a `@Service` with a `@Scheduled` method;
