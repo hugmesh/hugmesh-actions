@@ -15,7 +15,7 @@ losing it on a restart only delays an auto-revoke).
 |---|---|
 | **Tier** | Backend effector / reconciler — talks to Casdoor admin APIs + GitHub; not a user-facing UI. |
 | **In-cluster identity** | Deployed under the name **`hugmesh-api`** (its mTLS identity is the `hugmesh-api-mtls` ESO Secret). The deployment manifest lives in `hugmesh-generator` (`specs/cluster/manifests/hugmesh-apis/`), not in this repo. See [SECURITY.md](SECURITY.md). |
-| **Port** | `8090` local/dev (env `PORT`); the in-cluster deployment maps it to `8080`. |
+| **Port** | `8090` (env `PORT`) in the container. The in-cluster Service `hugmesh-api` listens on `8080` and forwards to `8090`. |
 | **Fronted by** | `hugmesh-be-gateway` — the legitimate caller of `/api/registration/**`; an external client never reaches this API directly. |
 | **Trusts** | The **hugmesh.net Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
 
@@ -45,8 +45,8 @@ flowchart LR
     GH["GitHub API"]
     BFF["hugmesh-admin-bff-api<br/>(internal first-login hook<br/>X-Internal-Token + mTLS)"]
 
-    GM -->|"read game-master / write admin"| SC
-    GM -->|"write games admin<br/>(when games enabled)"| GC
+    GM -->|"read game-master"| SC
+    GM -->|"read and write admin<br/>(needs the games Casdoor)"| GC
     GHA -.->|"grant/deny systems admin<br/>(disabled by default)"| SC
     GHA -.->|"check org-admin reach<br/>(disabled by default)"| GH
     REV -.->|"prune-only revoke<br/>(no-op when disabled)"| SC
@@ -75,14 +75,22 @@ support already ships dark on `main`, see Current State).
 > Role-gated and tied to the **optional games service** (HugMesh Game
 > Studio), which is OFF by default and only enabled when a build is
 > generated with `--enable-games` / `ENABLE_GAMES=true`. When games is
-> not deployed this reconciler simply has no games Casdoor to write to;
-> it is the cross-stack reconciler that propagates a domain
+> not deployed there is no games Casdoor to reach: each tick reads both
+> Casdoors together, so the tick fails and counts `actions.gm_sync.errors`.
+> It is the cross-stack reconciler that propagates a domain
 > admin/superadmin holding the `game-master` role into the games realm as
 > a games admin.
 
 Propagates the `game-master` role from hugmesh.net Casdoor into
 the `admin` role on the games Casdoor. Scheduled every
-`app.actions.game-master-sync.interval-ms` (default **60 s**).
+`app.actions.game-master-sync.interval-ms` (default **60 s**, first tick after
+`initial-delay-ms`, default 5 s). The role names are
+`app.actions.game-master-sync.systems-role` (`GM_SYNC_SYSTEMS_ROLE`, default
+`game-master`) and `…games-role` (`GM_SYNC_GAMES_ROLE`, default `admin`). Those are the
+defaults only: the in-cluster deployment
+(`hugmesh-generator/specs/cluster/manifests/hugmesh-apis/deployment.yaml`) sets
+`GM_SYNC_SYSTEMS_ROLE=ROLE_GAMES_ADMIN`, so there the sync mirrors
+`ROLE_GAMES_ADMIN` on systems into `admin` on games.
 
 Each tick reads both role memberships, computes the desired games-admin
 set by rewriting every systems member's `<org>/<username>` identifier to
@@ -104,7 +112,7 @@ opens the breaker and the next tick retries instead of piling up work.
 #### Notifications v1 — first caller (`RoleChangeNotifier`)
 
 > **Disabled by default (✅ shipped).** Gated behind
-> `app.actions.notify.enabled` (env `ACTIONS_NOTIFY_ENABLED`), default
+> `app.actions.notify.enabled` (env `APP_ACTIONS_NOTIFY_ENABLED`), default
 > `false`. While disabled `RoleChangeNotifier` is a **logged no-op**
 > (`actions.notify.skipped` counts every call) — the reconciler's write
 > behaviour is bit-for-bit unchanged and **nothing writes
@@ -171,8 +179,8 @@ fast instead of cascading through every sign-up evaluation.
 Closes the audit gap where an admin who loses GitHub org-admin reach
 would otherwise keep systems-admin until their next sign-in. Mirrors the
 sync action's shape (reactive `Mono`/`Flux` pipeline,
-`@CircuitBreaker(name="github")`, configurable `…reconcile.interval-ms` /
-`…initial-delay-ms`, default **6 h**).
+`@CircuitBreaker(name="github")`, configurable `…reconcile.interval-ms`
+(default **6 h**) and `…initial-delay-ms` (default 30 s)).
 
 Each tick:
 
@@ -280,14 +288,17 @@ order:
 1. **Local reserved-username gate** (runs unconditionally) — rejects
    `422` any username that, normalised to the vanity-subdomain DNS-label
    form, collides with a dedicated gateway route/prefix. The reserved
-   list (`ReservedNames`, currently **82 labels**) is the canonical union
+   list (`ReservedNames`, currently **82 labels**, asserted by
+   `ReservedNamesTest`) is the canonical union
    of the fe-/be-gateway route prefixes, reserved subdomains, the
    app routes of the optional (opt-in, default-off) games service, and
-   defensive infra names — **kept
-   byte-for-byte in lockstep** with `hugmesh-gateway`'s `CanonicalSeed`
-   and `hugmesh-admin-bff-api`'s copy (all three must agree on the same
-   82). This is defence-in-depth; Casdoor's own forbidden-username policy
-   is the source gate.
+   defensive infra names. It is meant to stay **byte-for-byte in lockstep**
+   with the canonical `specs/cluster/reserved-prefixes.yaml` in
+   `hugmesh-generator`, the route prefixes in `hugmesh-gateway`'s `CanonicalSeed`,
+   and the other hand-synced copies (`hugmesh-federation-api`, and
+   `hugmesh-auth-core`, which user-bff and admin-bff consume). The
+   `hugmesh-auth-core` copy asserts the same 82. This is defence-in-depth;
+   Casdoor's own forbidden-username policy is the source gate.
 2. **Federation confusable / availability gate** (defence-in-depth,
    **config-gated, default off**) — when
    `app.federation.username-check.enabled=true`, asks
@@ -315,7 +326,7 @@ in [SECURITY.md](SECURITY.md)):
 - **OAuth2 resource server (application layer).** Validates Casdoor-
   issued JWTs from the systems Casdoor issuer. Path policy (reactive
   `SecurityConfig`):
-  - `/actuator/health` + `/actuator/info` — public (probes);
+  - `/actuator/health`, `/actuator/health/**` + `/actuator/info` — public (probes);
   - `/actuator/**` — `ROLE_GAME-MASTER` (metrics / Prometheus / Casdoor
     reachability never leak);
   - `/api/registration/**` — `ROLE_ADMIN`;
@@ -353,27 +364,27 @@ relocation (admin-bff → user-bff) and the `hugmesh-auth-core`
 extraction (shared account/session/MFA/Casdoor-admin infra, consumed by
 user-bff + admin-bff only) therefore **do not touch this repo's code** —
 it consumes neither. The one auth machinery it *does* share is the
-stateless JWT→authority converter (`CasdoorAuthorities`, copied from
-`hugmesh-gateway`) and the `ReservedNames` canonical-82 union (kept in
-lockstep with `hugmesh-gateway` and `hugmesh-admin-bff-api`).
+stateless JWT→authority converter (`CasdoorAuthorities`, from
+`hugmesh-commons`) and the `ReservedNames` canonical-82 union (see
+[HTTP surface](#http-surface)).
 
 ### Domain-scoping (issuer-keyed) — ✅ shipped
 
 The platform's per-brand multi-tenancy keys a token's brand off its
 **cryptographically-validated issuer** (one Casdoor per brand → distinct
-`iss`). This service adopts the same canonical machinery the gateways
-use, so it participates consistently. The pieces below are **part of the
-service today** (merged via PR #12), and `SecurityConfig` already
-delegates JWT → authority mapping to
-`CasdoorAuthorities.converter(domainRegistry)` and swaps to the per-issuer
-resolver only when the registry is genuinely multi-issuer:
+`iss`). This service takes the canonical machinery from `hugmesh-commons`
+2.1.0 (`net.hugmesh.commons.*`; `CommonsSecurityConfig` imports the beans).
+There are no local copies. `SecurityConfig` delegates JWT → authority mapping
+to `CasdoorAuthorities.converter(domainRegistry, mfaConfig)` and swaps to the
+per-issuer resolver only when the registry is genuinely multi-issuer:
 
 - **`CasdoorAuthorities`** — the single canonical JWT → authority
-  converter (copied from `hugmesh-gateway`), used by both the single-
-  issuer and the optional multi-issuer decoder paths so they emit
-  byte-identical authorities. It floors every principal to `ROLE_USER`,
+  converter, used by both the single-issuer and the optional multi-issuer
+  decoder paths so they emit byte-identical authorities. It floors every
+  principal to `ROLE_USER`,
   maps `roles` → `ROLE_<UPPER>`, passes `permissions` through **verbatim
-  except** entries carrying a reserved prefix (`ROLE_` / `DOMAIN_`),
+  except** entries carrying a reserved prefix (`ROLE_` / `DOMAIN_`, and
+  `MFA_SATISFIED`),
   which are **stripped** (authority-injection defence — a token can't
   forge a super-role or a tenant scope via a permission claim), honours
   legacy `isAdmin` → `ROLE_ADMIN`, and stamps **exactly one** issuer-
@@ -385,7 +396,7 @@ resolver only when the registry is genuinely multi-issuer:
   becomes the trusted allowlist and **fails closed** on an unknown `iss`.
 - **`TenancyResourceServerConfig`** — config-gated, opt-in per-issuer
   resolver that 401s an unknown `iss` before any authority is emitted.
-- **`Roles`** helpers — including the least-privilege cascade markers:
+- **`Roles`** helpers (`hugmesh-commons`; this service calls none of them) — including the least-privilege cascade markers:
   `SUPERADMIN` (the only role exempt from per-domain scoping — the infra
   control plane) and the separate `IMAGE-BUILDER` capability.
 
@@ -400,10 +411,9 @@ domain-scoped query to filter, and none is invented.
 
 ### Roadmap — 🔭 planned (NOT shipped)
 
-These platform-wide initiatives would touch this service when adopted.
-They are **design-only today** *except where noted as ships-dark*; the
-endpoint-enforcement and Boot-4 items below are not yet a current
-capability on `main`.
+This platform-wide initiative would touch this service when adopted.
+It is **design-only today** *except where noted as ships-dark*; the
+endpoint-enforcement guard is not yet a current capability on `main`.
 
 - **Casdoor MFA / step-up (🔭 endpoint guard planned; converter parity
   ✅ ships dark).** A platform-wide design (9-PR plan) introduces
@@ -413,18 +423,16 @@ capability on `main`.
   `MFA_SATISFIED` authority from the validated `mfa_satisfied_at` claim
   behind `app.mfa.enabled` (default `false`), `MFA_SATISFIED` is in the
   reserved-prefix injection defence, and `Roles` carries the markers
-  (`CasdoorAuthoritiesMfaTest`). What is **still planned** is the
+  (covered by `CasdoorAuthoritiesTest` in `hugmesh-commons`). What is **still planned** is the
   *endpoint-enforcement guard* — an `mfa_satisfied` / `acr` step-up check
   guarding the `ROLE_ADMIN` registration endpoint; no such check exists
   yet, so the endpoint authorizes on `ROLE_ADMIN` alone.
 
 ## Current State
 
-*(as of 2026-07-19 — includes the reserved-name canonical-77 sync in #42,
-the GitHub-org-admin opt-in work through #38, and the HugMesh
-package/groupId rebrand in #44, which also bumped the `hugmesh-commons`
-dependency to 2.1.0; `GH_ORG_ADMIN_ORGS`'s transition-window default has
-since been narrowed to `hugmesh,HugMesh` now the GitHub org rename is live)*
+*(checked against origin/main on 2026-10-07 — reserved list at 82 labels, `hugmesh-commons`
+2.1.0, `GH_ORG_ADMIN_ORGS` default `hugmesh,HugMesh`, GitHub release workflow and per-role e2e
+seeder in place)*
 
 **Shipped & active on `main`:**
 
@@ -445,12 +453,12 @@ since been narrowed to `hugmesh,HugMesh` now the GitHub org rename is live)*
   `false` → marker never emitted), `MFA_SATISFIED` is in the converter's
   reserved-prefix injection defence, and `Roles` defines the
   `MFA_SATISFIED` / `mfa_satisfied_at` helpers (covered by
-  `CasdoorAuthoritiesMfaTest`). The endpoint-enforcement guard is still
+  `CasdoorAuthoritiesTest` in `hugmesh-commons`). The endpoint-enforcement guard is still
   🔭 planned (the `ROLE_ADMIN` endpoint authorizes on `ROLE_ADMIN` alone).
 - Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
   `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
-  `iss`), reserved-username gate (canonical 82 labels, in lockstep with
-  `hugmesh-gateway` + `hugmesh-admin-bff-api`), the config-gated
+  `iss`), reserved-username gate (canonical 82 labels, see
+  [HTTP surface](#http-surface)), the config-gated
   federation confusable gate, SpringDoc/Swagger surface, and the GitLab
   three-stage CI pipeline (test → build:image → pentest).
 - Notifications v1's **first caller** (`RoleChangeNotifier`, wired into
@@ -484,7 +492,8 @@ directly, with Resilience4j `…-spring-boot4` 2.4.0 (+ a direct `aspectjweaver`
 dependency so the `@CircuitBreaker` aspect actually registers — Boot 4 removed
 the old `spring-boot-starter-aop` convenience starter) and SpringDoc 3.0.3 (with
 `springdoc.api-docs.version: openapi_3_0` so the published spec stays OpenAPI
-3.0 for ng-openapi-gen 0.51.0). The Boot-4 WebFlux JSON codec is Jackson 3.
+3.0: `application.yml` says ng-openapi-gen 0.51.0 cannot parse 3.1. `hugmesh-login-ui` and
+`hugmesh-character-studio-ui` still pin `^0.51.0`; the other UIs pin `^1.0.5`). The Boot-4 WebFlux JSON codec is Jackson 3.
 
 **Commons adoption (✅ done — metapom parent deliberately NOT adopted):** the
 local `CasdoorAuthorities` / `DomainRegistry` copies are retired in favour of
@@ -502,7 +511,7 @@ child, which for this "INTENTIONALLY stateless... No local DB" service (see
 `HugMeshActionsApplication`'s own javadoc) would auto-configure an R2DBC
 `ConnectionFactory` bean with no `spring.r2dbc.*` configured and fail to
 **start** in production. `hugmesh-commons:2.1.0` is instead a direct, pinned
-dependency with `<exclusions>` stripping those same DB artifacts (commons
+dependency with `<exclusions>` stripping those same DB artifacts (plus `spring-boot-liquibase`) (commons
 carries them transitively via its own `hugmesh-parent` ancestry) — every
 other commons transitive (security / oauth2-resource-server / validation /
 springdoc) is already declared explicitly above at the same Boot-4-BOM-managed
@@ -511,8 +520,8 @@ version, so excluding those too is a no-op dedupe, not a footprint change.
 ## Roadmap
 
 Platform-wide, designed-or-in-flight initiatives, called out where they
-specifically touch this effector. Nothing below is a current capability
-on `main`.
+specifically touch this effector. Items marked ✅ are done; the rest are not
+current capabilities on `main`.
 
 - **✅ Adopt `hugmesh-commons` for the converter/registry/role types.** The
   local `CasdoorAuthorities` / `DomainRegistry` / (most of) `Roles` copies are
@@ -587,18 +596,19 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_PLATFORM_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
+| GM sync roles | `app.actions.game-master-sync.systems-role` / `…games-role` (`GM_SYNC_SYSTEMS_ROLE` / `GM_SYNC_GAMES_ROLE`) | `game-master` / `admin` (the cluster deployment sets `ROLE_GAMES_ADMIN` as the systems role) |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
 | GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `hugmesh,HugMesh` (both casings — the repo-admin reach path matches the repo owner's login case-sensitively) |
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
 | GitHub token TTL | `app.actions.gh-org-admin.token-ttl` (`GH_ORG_ADMIN_TOKEN_TTL`) | `PT24H` |
-| Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` | `21600000` (6 h) |
+| Revoke reconcile interval | `app.actions.gh-org-admin.reconcile.interval-ms` (`GH_ORG_ADMIN_RECONCILE_INTERVAL_MS`) | `21600000` (6 h) |
 | OIDC default-role probe | `app.actions.oidc-default-roles.enabled` (`APP_OIDC_DEFAULT_ROLES_ENABLED`) | `false` (off → tick returns immediately, role-hook bean absent) |
 | OIDC probe interval | `app.actions.oidc-default-roles.interval-ms` | `300000` (5 min) |
 | OIDC admin-bff base URL | `app.actions.oidc-default-roles.admin-bff-base-url` (`APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL`) | in-cluster admin-bff DNS |
 | OIDC internal-token | `app.actions.oidc-default-roles.internal-token` (`APP_OIDC_DEFAULT_ROLES_INTERNAL_TOKEN`) | _(empty)_ — shared `X-Internal-Token` for the admin-bff first-login call |
-| MFA converter parity | `app.mfa.enabled` | `false` (off → `MFA_SATISFIED` marker never emitted) |
+| MFA converter parity | `app.mfa.enabled`, `app.mfa.freshness-window` (ms) | `false` (off → `MFA_SATISFIED` marker never emitted); `600000` |
 | Federation confusable gate | `app.federation.username-check.enabled` (`APP_FEDERATION_USERNAME_CHECK_ENABLED`) | `false` |
-| Notifications v1 writer | `app.actions.notify.enabled` (`ACTIONS_NOTIFY_ENABLED`) | `false` (off → `RoleChangeNotifier` is a logged no-op, nothing writes `user_notifications`) |
+| Notifications v1 writer | `app.actions.notify.enabled` (`APP_ACTIONS_NOTIFY_ENABLED`) | `false` (off → `RoleChangeNotifier` is a logged no-op, nothing writes `user_notifications`) |
 | Notifications v1 target user-bff | `app.actions.notify.user-bff-base-url` (`APP_ACTIONS_NOTIFY_USER_BFF_BASE_URL`) | in-cluster user-bff DNS |
 | Notifications v1 domain tag | `app.actions.notify.domain` (`APP_ACTIONS_NOTIFY_DOMAIN`) | `default` |
 | GitHub API base | `app.github.base-url` (`GITHUB_API_BASE_URL`) | `https://api.github.com` |
@@ -624,6 +634,10 @@ docker compose up -d                        # two Casdoors (systems + games) + t
 docker compose logs -f hugmesh-actions   # watch ticks (compose.yaml's service name)
 curl localhost:8090/actuator/health         # public probe
 ```
+
+A cold `docker compose up` builds the image, and that build must fetch the
+private `hugmesh-commons`. See `hugmesh-generator/docs/LOCAL-STACK.md`, "Cold
+builds". (UNVERIFIED here: a cold build with no build args.)
 
 The compose stack brings up two Casdoor instances (each with its own
 Postgres) so the game-master → admin sync can be exercised end-to-end
@@ -659,17 +673,19 @@ The pipeline has three stages (`stages: [test, build, pentest]`):
 
 ### GitHub release image (manual)
 
-`.github/workflows/release.yml` is a `workflow_dispatch`-only workflow that
+`.github/workflows/release.yml` ("Release image", job `build-and-push`) is a
+`workflow_dispatch`-only workflow that
 builds this `Dockerfile` on a GitHub-hosted runner and pushes
-`ghcr.io/hugmesh/hugmesh-actions:<sha>` (and `:latest` only when dispatched
-from `main`). The private `net.hugmesh:hugmesh-commons` (and its parent
+`ghcr.io/hugmesh/hugmesh-actions:<tag>` (and `:latest` only when dispatched
+from `main`). The one input, `tag`, is optional; it defaults to the full commit SHA. The private `net.hugmesh:hugmesh-commons` (and its parent
 `hugmesh-parent`) come from GitHub Packages through
 `.github/maven-ci-settings.xml`, selected by the BuildKit secret
 `packages_read_token`. That secret is the **`PACKAGES_READ_TOKEN` repository
 secret**: a classic personal access token with `read:packages` (operator
 decision 90a = B, `hugmesh-commons/RELEASING.md` section 6). The workflow's
 preflight step fails by name when it is unset or cannot read the two
-registries. Without that secret mounted, the `Dockerfile` keeps using the
+registries. The optional `PACKAGES_READ_ACTOR` secret names the user for that
+token (default: the dispatching actor). Without that secret mounted, the `Dockerfile` keeps using the
 repo-root `settings.xml` (GitLab group registry), which is what GitLab CI and
 the local compose stack (`hugmesh-generator/docs/LOCAL-STACK.md`, "Cold
 builds") rely on.
@@ -724,7 +740,7 @@ run `native:compile` on a GraalVM JDK to produce the binary.
   stack.sh` still fails closed by default (exits non-zero, never a partial
   token map) if any step doesn't complete — see `e2e/README.md`'s "Token
   wiring" section for the detail and the `E2E_ALLOW_ANONYMOUS_ONLY=1`
-  opt-out. **A person still needs to run it against the real compose stack**
+  opt-out (which skips the seeder, not the e2e-password check). **A person still needs to run it against the real compose stack**
   and confirm `npm --prefix e2e test` passes all six `per-role-access.feature`
   scenarios, not just the anonymous one.
 - **`cross-stack-admin-sync.feature`'s own Casdoor identities remain
