@@ -53,7 +53,7 @@ flowchart LR
     OIDC -.->|"read new users<br/>(disabled by default)"| SC
     OIDC -.->|"apply OIDC default roles<br/>(disabled by default)"| BFF
 
-    MFA["MFA / acr step-up on ROLE_ADMIN"]:::planned
+    MFA["MFA / acr step-up on ROLE_ADMIN"]
     MFA -.-> RC
 
     classDef planned stroke-dasharray:4 5,stroke:#999,color:#999
@@ -63,10 +63,9 @@ flowchart LR
 Solid edges are **✅ shipped** and active by default; the dotted
 GitHub-org-admin and OIDC-default-role edges are shipped but **gated off
 by default** (`app.actions.gh-org-admin.enabled=false`,
-`app.actions.oidc-default-roles.enabled=false`); the greyed `MFA` node is
-**🔭 planned** for the endpoint-enforcement guard — see
-[Roadmap](#roadmap---planned-not-shipped) (note: the MFA *converter*
-support already ships dark on `main`, see Current State).
+`app.actions.oidc-default-roles.enabled=false`); the `MFA` node is the
+step-up guard, shipped but **gated off by default** (`app.mfa.enabled=false`) —
+see [Roadmap](#roadmap---planned-not-shipped) and Current State.
 
 ## Actions
 
@@ -405,7 +404,7 @@ They are **design-only today** *except where noted as ships-dark*; the
 endpoint-enforcement and Boot-4 items below are not yet a current
 capability on `main`.
 
-- **Casdoor MFA / step-up (🔭 endpoint guard planned; converter parity
+- **Casdoor MFA / step-up (endpoint guard ✅ ships dark; converter parity
   ✅ ships dark).** A platform-wide design (9-PR plan) introduces
   WebAuthn + TOTP + recovery with `amr`/`acr` → `MFA_SATISFIED` and
   step-up enforcement on sensitive operations. The **converter half**
@@ -413,10 +412,14 @@ capability on `main`.
   `MFA_SATISFIED` authority from the validated `mfa_satisfied_at` claim
   behind `app.mfa.enabled` (default `false`), `MFA_SATISFIED` is in the
   reserved-prefix injection defence, and `Roles` carries the markers
-  (`CasdoorAuthoritiesMfaTest`). What is **still planned** is the
-  *endpoint-enforcement guard* — an `mfa_satisfied` / `acr` step-up check
-  guarding the `ROLE_ADMIN` registration endpoint; no such check exists
-  yet, so the endpoint authorizes on `ROLE_ADMIN` alone.
+  (`CasdoorAuthoritiesMfaTest`). The *endpoint-enforcement guard* now
+  ships dark too: with `app.mfa.enabled=true`, `/api/registration/**`
+  requires `MFA_SATISFIED` on top of `ROLE_ADMIN`, and a `ROLE_ADMIN`
+  caller refused only for the missing marker gets `403` with
+  `X-Step-Up-Required: X-Actions-StepUp`
+  (`MfaStepUpPathGateSliceTest`). With the flag off (the default) the
+  endpoint authorizes on `ROLE_ADMIN` alone, as before. Still planned:
+  flipping the flag on the live cluster (platform-level).
 
 ## Current State
 
@@ -445,8 +448,10 @@ since been narrowed to `hugmesh,HugMesh` now the GitHub org rename is live)*
   `false` → marker never emitted), `MFA_SATISFIED` is in the converter's
   reserved-prefix injection defence, and `Roles` defines the
   `MFA_SATISFIED` / `mfa_satisfied_at` helpers (covered by
-  `CasdoorAuthoritiesMfaTest`). The endpoint-enforcement guard is still
-  🔭 planned (the `ROLE_ADMIN` endpoint authorizes on `ROLE_ADMIN` alone).
+  `CasdoorAuthoritiesMfaTest`). The endpoint-enforcement guard on
+  `/api/registration/**` ships dark behind the same flag (off → the
+  endpoint authorizes on `ROLE_ADMIN` alone; on → `MFA_SATISFIED` is also
+  required, covered by `MfaStepUpPathGateSliceTest`).
 - Issuer-keyed domain-scoping (canonical `CasdoorAuthorities` +
   `DomainRegistry` multi-issuer back-compat, fail-closed on unknown
   `iss`), reserved-username gate (canonical 82 labels, in lockstep with
@@ -522,12 +527,12 @@ on `main`.
   (`r2dbc`/`postgresql`/`liquibase`) onto this stateless, DB-less service that
   would fail to start in production; `hugmesh-commons` is instead a direct
   pinned dependency with `<exclusions>` (see *Baseline* above).
-- **Casdoor MFA / step-up (🔭 endpoint guard planned).** WebAuthn + TOTP +
+- **Casdoor MFA / step-up (endpoint guard ✅ ships dark).** WebAuthn + TOTP +
   recovery, per-role defaults, `amr`/`acr` → `MFA_SATISFIED`. The
-  `MFA_SATISFIED` converter parity already **ships dark** here (behind
-  `app.mfa.enabled`); what remains planned is the `mfa_satisfied` / `acr`
-  step-up guard on the `ROLE_ADMIN` registration endpoint (today it
-  authorizes on `ROLE_ADMIN` alone). See the planned block above.
+  `MFA_SATISFIED` converter parity and the step-up guard on the
+  `ROLE_ADMIN` registration endpoint both **ship dark** here (behind
+  `app.mfa.enabled`); what remains is flipping the flag on the live
+  cluster. See the block above.
 - **SSO end-to-end live + e2e (in progress, platform-level).** Does not
   change this service's code, but the cross-stack admin-sync and
   per-role access matrix exercised here are part of the platform e2e
@@ -596,7 +601,7 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 | OIDC probe interval | `app.actions.oidc-default-roles.interval-ms` | `300000` (5 min) |
 | OIDC admin-bff base URL | `app.actions.oidc-default-roles.admin-bff-base-url` (`APP_OIDC_DEFAULT_ROLES_ADMIN_BFF_BASE_URL`) | in-cluster admin-bff DNS |
 | OIDC internal-token | `app.actions.oidc-default-roles.internal-token` (`APP_OIDC_DEFAULT_ROLES_INTERNAL_TOKEN`) | _(empty)_ — shared `X-Internal-Token` for the admin-bff first-login call |
-| MFA converter parity | `app.mfa.enabled` | `false` (off → `MFA_SATISFIED` marker never emitted) |
+| MFA converter parity + registration step-up guard | `app.mfa.enabled` | `false` (off → `MFA_SATISFIED` marker never emitted and `/api/registration/**` needs `ROLE_ADMIN` alone) |
 | Federation confusable gate | `app.federation.username-check.enabled` (`APP_FEDERATION_USERNAME_CHECK_ENABLED`) | `false` |
 | Notifications v1 writer | `app.actions.notify.enabled` (`ACTIONS_NOTIFY_ENABLED`) | `false` (off → `RoleChangeNotifier` is a logged no-op, nothing writes `user_notifications`) |
 | Notifications v1 target user-bff | `app.actions.notify.user-bff-base-url` (`APP_ACTIONS_NOTIFY_USER_BFF_BASE_URL`) | in-cluster user-bff DNS |
