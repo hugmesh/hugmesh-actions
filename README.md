@@ -412,8 +412,9 @@ capability on `main`.
   `MFA_SATISFIED` authority from the validated `mfa_satisfied_at` claim
   behind `app.mfa.enabled` (default `false`), `MFA_SATISFIED` is in the
   reserved-prefix injection defence, and `Roles` carries the markers
-  (`CasdoorAuthoritiesMfaTest`). The *endpoint-enforcement guard* now
-  ships dark too: with `app.mfa.enabled=true`, `/api/registration/**`
+  (`CasdoorAuthorities` and `Roles` now live in `hugmesh-commons`, whose
+  `CasdoorAuthoritiesTest` and `RolesTest` cover them). The *endpoint-enforcement
+  guard* now ships dark too: with `app.mfa.enabled=true`, `/api/registration/**`
   requires `MFA_SATISFIED` on top of `ROLE_ADMIN`, and a `ROLE_ADMIN`
   caller refused only for the missing marker gets `403` with
   `X-Step-Up-Required: X-Actions-StepUp`
@@ -447,8 +448,9 @@ since been narrowed to `hugmesh,HugMesh` now the GitHub org rename is live)*
   validated `mfa_satisfied_at` claim behind `app.mfa.enabled` (default
   `false` → marker never emitted), `MFA_SATISFIED` is in the converter's
   reserved-prefix injection defence, and `Roles` defines the
-  `MFA_SATISFIED` / `mfa_satisfied_at` helpers (covered by
-  `CasdoorAuthoritiesMfaTest`). The endpoint-enforcement guard on
+  `MFA_SATISFIED` / `mfa_satisfied_at` helpers (both now come from
+  `hugmesh-commons`, whose `CasdoorAuthoritiesTest` and `RolesTest` cover
+  them). The endpoint-enforcement guard on
   `/api/registration/**` ships dark behind the same flag (off → the
   endpoint authorizes on `ROLE_ADMIN` alone; on → `MFA_SATISFIED` is also
   required, covered by `MfaStepUpPathGateSliceTest`).
@@ -516,10 +518,11 @@ version, so excluding those too is a no-op dedupe, not a footprint change.
 ## Roadmap
 
 Platform-wide, designed-or-in-flight initiatives, called out where they
-specifically touch this effector. Nothing below is a current capability
-on `main`.
+specifically touch this effector. Items marked ✅ are already on `main`;
+the rest are in flight or planned.
 
-- **✅ Adopt `hugmesh-commons` for the converter/registry/role types.** The
+- **✅ Adopt `hugmesh-commons` for the converter/registry/role types (done,
+  #37; version bumped to 2.1.0 in #44).** The
   local `CasdoorAuthorities` / `DomainRegistry` / (most of) `Roles` copies are
   folded onto `net.hugmesh.commons.*`, removing the byte-for-byte-copy
   maintenance burden. **NOT adopted:** `hugmesh-parent` as this repo's
