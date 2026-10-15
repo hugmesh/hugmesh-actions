@@ -67,6 +67,28 @@ abstract class SecuritySliceSupport {
     }
 
     /**
+     * Like {@link #sliceClient} but with {@code app.mfa.enabled} given explicitly, and the
+     * chain chosen: {@code prod} builds {@code filterChain}, otherwise {@code devFilterChain}.
+     * The step-up rule and its refusal handler are wired on both, so both are exercised.
+     */
+    static WebTestClient mfaSliceClient(
+            DomainRegistry registry,
+            ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>> tenantResolver,
+            boolean mfaEnabled,
+            boolean prod,
+            Object... controllers) {
+
+        SecurityConfig config = new SecurityConfig(registry, tenantResolver, mfaEnabled, 600_000L);
+        ServerHttpSecurity http = ServerHttpSecurity.http();
+        SecurityWebFilterChain chain = prod ? config.filterChain(http) : config.devFilterChain(http);
+        return WebTestClient.bindToController(controllers)
+                .webFilter(new WebFilterChainProxy(chain))
+                .configureClient()
+                .responseTimeout(sliceResponseTimeout())
+                .build();
+    }
+
+    /**
      * The slice's {@link WebTestClient} blocking-read budget. Generous by default (30s)
      * so a cold first-touch OIDC discovery on a constrained CI runner never trips the
      * framework's 5s default; overridable via {@code actions.slice.responseTimeoutSeconds}.
