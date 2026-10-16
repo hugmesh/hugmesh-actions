@@ -107,7 +107,11 @@ liveness probe. The be-gateway must present its client cert and call this API ov
   `app.mfa.enabled=true`, `CasdoorAuthorities` (from `hugmesh-commons`) derives an
   `MFA_SATISFIED` authority from a fresh `mfa_satisfied_at` claim
   (`app.mfa.freshness-window`, default 600000 ms). The default is `false`, so
-  the marker is never emitted. The endpoint guard is **not implemented**. When
-  adopted, the `ROLE_ADMIN` registration endpoint would gain an `MFA_SATISFIED`
-  check on top of `ROLE_ADMIN`. Today the endpoint authorizes on `ROLE_ADMIN`
-  alone. The code has no MFA/`acr` check.
+  the marker is never emitted. The endpoint guard ships dark behind the same
+  flag. With `app.mfa.enabled=true`, `/api/registration/**` requires
+  `MFA_SATISFIED` on top of `ROLE_ADMIN`, and a `ROLE_ADMIN` caller refused only
+  for the missing marker gets `403` with `X-Step-Up-Required: X-Actions-StepUp`
+  (`SecurityConfig`, `StepUpAccessDeniedHandler`, covered by
+  `MfaStepUpPathGateSliceTest`). With the flag off (the default) the endpoint
+  authorizes on `ROLE_ADMIN` alone. The code has no `acr` check. Still planned:
+  turning the flag on in the live cluster.

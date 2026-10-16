@@ -10,15 +10,20 @@ import org.springframework.security.authentication.ReactiveAuthenticationManager
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.authorization.AuthorityReactiveAuthorizationManager;
+import org.springframework.security.authorization.ReactiveAuthorizationManager;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.web.server.authorization.AuthorizationContext;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import net.hugmesh.commons.config.TenancyResourceServerConfig;
 import net.hugmesh.commons.security.CasdoorAuthorities;
 import net.hugmesh.commons.security.DomainRegistry;
+import net.hugmesh.commons.security.Roles;
 
 /**
  * Reactive Spring Security for hugmesh-actions.
@@ -33,7 +38,9 @@ import net.hugmesh.commons.security.DomainRegistry;
  *       hugmesh.games BFF enforce so cluster state / metrics /
  *       Casdoor reachability never leak.</li>
  *   <li>{@code /api/registration/**} — restricted to
- *       {@code ROLE_ADMIN}. The action's RegistrationController
+ *       {@code ROLE_ADMIN}; additionally {@code MFA_SATISFIED} once
+ *       {@code app.mfa.enabled} is on (see {@link #stepUp}; a refusal for the missing
+ *       marker carries {@code X-Step-Up-Required}). The action's RegistrationController
  *       expects to be called by an authenticated HugMesh-internal
  *       caller (the registration remote's BFF), NOT directly by a
  *       browser. Internal callers present an admin-scoped Casdoor
@@ -146,11 +153,46 @@ public class SecurityConfig {
      * how {@link #SPEC_PATHS} is gated, so every other route lives here to keep the
      * two chains in lockstep.
      */
-    private static void commonRoutes(ServerHttpSecurity.AuthorizeExchangeSpec ex) {
+    private void commonRoutes(ServerHttpSecurity.AuthorizeExchangeSpec ex) {
         ex.pathMatchers("/actuator/health", "/actuator/health/**",
                         "/actuator/info").permitAll();
         ex.pathMatchers("/actuator/**").hasRole("GAME-MASTER");
-        ex.pathMatchers("/api/registration/**").hasRole("ADMIN");
+        ex.pathMatchers("/api/registration/**").access(
+                stepUp(AuthorityReactiveAuthorizationManager.hasRole("ADMIN")));
+    }
+
+    /**
+     * Step-up composition for the registration surface. While {@code app.mfa.enabled} is
+     * off, {@code base} is returned unchanged, so the policy is the one that shipped before
+     * this method existed. When on, a caller {@code base} grants must ALSO hold the
+     * {@link Roles#MFA_SATISFIED} authority the converter derives from a fresh
+     * {@code mfa_satisfied_at} claim. {@code base} is evaluated first and a role denial is
+     * never marked as a step-up denial, so the marker can only narrow a grant.
+     */
+    private ReactiveAuthorizationManager<AuthorizationContext> stepUp(
+            ReactiveAuthorizationManager<AuthorizationContext> base) {
+        if (!mfaEnabled) {
+            return base;
+        }
+        ReactiveAuthorizationManager<AuthorizationContext> marker =
+                AuthorityReactiveAuthorizationManager.hasAuthority(Roles.MFA_SATISFIED);
+        return (authentication, context) -> base.authorize(authentication, context)
+                .flatMap(result -> result.isGranted()
+                        ? marker.authorize(authentication, context)
+                                .doOnNext(markerResult -> {
+                                    if (!markerResult.isGranted()) {
+                                        StepUpAccessDeniedHandler.recordDenial(context.getExchange());
+                                    }
+                                })
+                        : Mono.just(result));
+    }
+
+    /** The step-up refusal renderer, installed only while MFA is on so that the dark
+     *  default leaves Spring's own access-denied handling untouched. */
+    private void stepUpDenial(ServerHttpSecurity.ExceptionHandlingSpec e) {
+        if (mfaEnabled) {
+            e.accessDeniedHandler(new StepUpAccessDeniedHandler());
+        }
     }
 
     /**
@@ -166,6 +208,7 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .headers(SecurityConfig::hardenHeaders)
+                .exceptionHandling(this::stepUpDenial)
                 .authorizeExchange(ex -> {
                     commonRoutes(ex);
                     ex.pathMatchers(SPEC_PATHS).permitAll();
@@ -187,6 +230,7 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .headers(SecurityConfig::hardenHeaders)
+                .exceptionHandling(this::stepUpDenial)
                 .authorizeExchange(ex -> {
                     commonRoutes(ex);
                     ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
