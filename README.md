@@ -368,7 +368,7 @@ union (see [HTTP surface](#http-surface)). The SCG-5 route-namespace fix
 The platform's per-brand multi-tenancy keys a token's brand off its
 **cryptographically-validated issuer** (one Casdoor per brand → distinct
 `iss`). This service takes the canonical machinery from `hugmesh-commons`
-2.1.0 (`net.hugmesh.commons.*`; `CommonsSecurityConfig` imports the beans).
+(pinned at 2.2.0-beta.1; `net.hugmesh.commons.*`; `CommonsSecurityConfig` imports the beans).
 There are no local copies. `SecurityConfig` delegates JWT → authority mapping
 to `CasdoorAuthorities.converter(domainRegistry, mfaConfig)` and switches to the
 per-issuer resolver only when the registry is genuinely multi-issuer:
@@ -490,7 +490,7 @@ not carry and which had no production call sites here (dropped, not ported).
 child. This service is "INTENTIONALLY stateless... No local DB" (see
 `HugMeshActionsApplication`'s javadoc). With those artifacts it would
 auto-configure an R2DBC `ConnectionFactory` with no `spring.r2dbc.*` and fail to
-**start** in production. So `hugmesh-commons:2.1.0` is a direct, pinned
+**start** in production. So `hugmesh-commons:2.2.0-beta.1` is a direct, pinned
 dependency with `<exclusions>` for those DB artifacts (plus
 `spring-boot-liquibase`), which commons carries through its own `hugmesh-parent`
 ancestry. Its other transitives (security, oauth2-resource-server, validation,
@@ -645,24 +645,52 @@ The pipeline has three stages (`stages: [test, build, pentest]`):
    without blocking the pipeline. `make pentest` runs the same checks
    locally as a pre-push gate (see the `Makefile`).
 
-### GitHub release image (manual)
+### GitHub release image and versions
 
-`.github/workflows/release.yml` ("Release image", job `build-and-push`) is a
-`workflow_dispatch`-only workflow. It builds this `Dockerfile` on a
-GitHub-hosted runner and pushes `ghcr.io/hugmesh/hugmesh-actions:<tag>`, and
-`:latest` only when dispatched from `main`. The one input, `tag`, is optional;
-it defaults to the full commit SHA. The private `net.hugmesh:hugmesh-commons`
-(and its parent `hugmesh-parent`) come from GitHub Packages through
+The version is `pom.xml` `<project><version>`, today **`0.2.0-beta.1`**:
+built and tested, not yet proven on a live mesh. A beta is
+`MAJOR.MINOR.PATCH-beta.N`; a fix during a beta raises N. A published version
+is never reused and never a SNAPSHOT.
+
+`.github/workflows/release.yml` ("Release image") builds this `Dockerfile` and
+pushes `ghcr.io/hugmesh/hugmesh-actions`:
+
+| Event | Image tags | GitHub Release |
+|---|---|---|
+| push to `main` | `:main`, `:sha-<12 hex>` | none |
+| push of tag `v<version>` | `:<version>`, `:beta`, `:sha-<12 hex>` | prerelease, not latest |
+| `workflow_dispatch` on a `v*` tag | same as the tag push (re-run) | created if missing |
+| `workflow_dispatch` on `main` | same as a push to `main` | none |
+| anything else | refused | none |
+
+The first job (`version`) refuses a SNAPSHOT, a tag that does not equal the pom
+version, and a tag whose commit is not on `main`. A release run also refuses
+when `:<version>` is already in the registry. `:latest` is pushed only for a
+final release (no `-` in the version); none exists yet.
+
+To publish a beta: merge the version bump to `main`, then tag that commit
+`v<version>` (annotated) and push the tag. To re-run a release, dispatch the
+workflow on the tag (`gh workflow run release.yml --ref v<version>`).
+
+**Runner.** Every job uses the runner in the repository variable
+`RUNS_ON_PUBLISH` (a JSON array such as `["self-hosted","Linux","X64"]`), but
+only for `main` and `v*` tags and never for a pull request. Anything else, or
+an unset variable, runs on hosted `ubuntu-latest`. Deleting the variable is the
+off switch. The workflow has no `pull_request` trigger.
+
+**Private libraries.** `net.hugmesh:hugmesh-commons` (and its parent
+`hugmesh-parent`) come from GitHub Packages through
 `.github/maven-ci-settings.xml`, selected by the BuildKit secret
 `packages_read_token`. That secret is the **`PACKAGES_READ_TOKEN` repository
 secret**: a classic personal access token with `read:packages` (operator
-decision 90a = B, `hugmesh-commons/RELEASING.md` section 6). The workflow's
+decision 90a = B, `hugmesh-commons/RELEASING.md` section 6). The `image` job's
 preflight step fails by name when the secret is unset or cannot read the two
 registries. The optional `PACKAGES_READ_ACTOR` secret names the user for that
-token (default: the dispatching actor). Without that secret mounted, the
-`Dockerfile` uses the repo-root `settings.xml` (GitLab group registry). GitLab
-CI and the local compose stack (`hugmesh-generator/docs/LOCAL-STACK.md`, "Cold
-builds") rely on that path.
+token (default: the triggering actor). The pinned commons version must be
+published before this image builds (release chain: build-config, parent,
+commons). Without that secret mounted, the `Dockerfile` uses the repo-root
+`settings.xml` (GitLab group registry). GitLab CI and the local compose stack
+(`hugmesh-generator/docs/LOCAL-STACK.md`, "Cold builds") rely on that path.
 
 ## Adding new actions
 
