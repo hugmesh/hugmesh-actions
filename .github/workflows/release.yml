@@ -219,6 +219,9 @@ jobs:
           fi
           printf '%s\n' "${out}"
           echo "::error::could not tell whether ${ref} exists (inspect exit ${rc}, output above). Not classified, so nothing is pushed."
+          # GHCR answers a package that does not exist yet with 403 at the token step, the same
+          # answer as a refused login, so the first release of a new image can stop here.
+          echo "::error::If ${IMAGE} has never been pushed, let a main build push :main first (push to main, or dispatch this workflow on main), then dispatch this workflow on ${GITHUB_REF_NAME} again."
           exit 1
 
       - name: Compute image tags and labels
