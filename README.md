@@ -715,3 +715,8 @@ Run `native:compile` on a GraalVM JDK to produce the binary.
   on the systems Casdoor. The sync feature's `game-master`/`admin` role
   objects on both Casdoors are a separate, open gap. See
   `e2e/README.md`'s Known Gaps.
+
+## License
+
+MIT. See [LICENSE](LICENSE), the same MIT file most hugmesh repositories carry.
+The Maven wrapper scripts (`mvnw`, `mvnw.cmd`) keep their own Apache License 2.0 headers.
