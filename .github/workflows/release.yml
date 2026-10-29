@@ -137,21 +137,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # On a self-hosted runner the default Docker config is the runner user's own
-      # ~/.docker/config.json. Keep this job's registry login in a per-job directory under
-      # RUNNER_TEMP, which the runner empties after every job, so a cancelled job never leaves
-      # the token behind. The user's CLI plugins (buildx) are linked in so `docker buildx`
-      # still works.
-      - name: Use a per-job Docker config
-        run: |
-          set -euo pipefail
-          d="${RUNNER_TEMP}/docker-config"
-          mkdir -p "${d}"
-          if [ -d "${HOME}/.docker/cli-plugins" ]; then
-            ln -sfn "${HOME}/.docker/cli-plugins" "${d}/cli-plugins"
-          fi
-          echo "DOCKER_CONFIG=${d}" >> "${GITHUB_ENV}"
-
       # PREFLIGHT, cross-repo package read. Fails here, by name, instead of deep inside Maven.
       # The net.hugmesh libraries live in the GitHub Packages registries of the chain
       # repositories. The automatic GITHUB_TOKEN cannot read another repository's package, so
@@ -196,6 +181,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # The GHCR login below goes to the default Docker config on purpose: the
+      # provenance step (actions/attest-build-provenance, push-to-registry) reads its
+      # ghcr.io credential from there and fails with "No credentials found for
+      # registry ghcr.io" when the login is redirected to a private config directory
+      # (hugmesh-mastodon-ui run 39840293063). This job always runs on a fresh
+      # GitHub-hosted runner, so nothing shares that config with another job.
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
