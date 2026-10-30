@@ -56,7 +56,7 @@ services:
       - pgdata_games:/var/lib/postgresql/data
 
   casdoor-systems:
-    image: casbin/casdoor:latest
+    image: casbin/casdoor:3.80.0  # the version the cluster pins (hugmesh-generator specs/cluster/manifests/casdoor*)
     depends_on:
       pg-systems:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       - "127.0.0.1:8001:8000"
 
   casdoor-games:
-    image: casbin/casdoor:latest
+    image: casbin/casdoor:3.80.0  # the version the cluster pins (hugmesh-generator specs/cluster/manifests/casdoor*)
     depends_on:
       pg-games:
         condition: service_healthy
@@ -111,6 +111,8 @@ services:
       CASDOOR_GAMES_CLIENT_ID:       ${CASDOOR_GAMES_CLIENT_ID:-hugmesh-actions}
       CASDOOR_GAMES_CLIENT_SECRET:   ${CASDOOR_GAMES_CLIENT_SECRET:-}
       CASDOOR_GAMES_ORG:             threewizards
+      # A short tick so e2e/features/sync scenarios cross a real one (production: 60 s).
+      GM_SYNC_INTERVAL_MS:           ${GM_SYNC_INTERVAL_MS:-2000}
     ports:
       - "127.0.0.1:8090:8090"
     restart: on-failure

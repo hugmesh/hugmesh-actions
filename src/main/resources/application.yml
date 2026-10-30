@@ -47,7 +47,12 @@ app:
       interval-ms:        ${GM_SYNC_INTERVAL_MS:60000}
       initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
       systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}
-      games-role:         ${GM_SYNC_GAMES_ROLE:admin}
+      # A games role the sync OWNS OUTRIGHT (it replaces the whole member list).
+      # Must start with "mesh-"; anything else (admin, player, ...) is refused.
+      games-role:         ${GM_SYNC_GAMES_ROLE:mesh-games-admin}
+      # Games-user property holding the linked systems user id (JWT sub).
+      # Admin-modifiable only under Casdoor's default account items.
+      link-property:      ${GM_SYNC_LINK_PROPERTY:meshSub}
     # GitHub-org admin auto-grant. DEFAULT OFF — superadmin opts in by
     # setting GH_ORG_ADMIN_ENABLED=true (or app.actions.gh-org-admin.enabled=true).
     # When disabled: the /api/registration/github-org-admin/evaluate endpoint

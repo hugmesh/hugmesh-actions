@@ -7,7 +7,7 @@ import { test as base, createBdd } from 'playwright-bdd';
  * `World` off the test fixture.
  */
 interface World {
-  counters: { added: number; removed: number; unchanged: number; errors: number };
+  counters: { added: number; removed: number; unchanged: number; unlinked: number; errors: number };
   beforeWriteCounts?: { systems: number; games: number };
   lastResponseStatus?: number;
 }
@@ -15,7 +15,7 @@ interface World {
 export const test = base.extend<{ world: World }>({
   world: async ({}, use) => {
     await use({
-      counters: { added: 0, removed: 0, unchanged: 0, errors: 0 },
+      counters: { added: 0, removed: 0, unchanged: 0, unlinked: 0, errors: 0 },
     });
   },
 });
