@@ -90,8 +90,8 @@ automatic bridge: it mirrors a systems role (`GM_SYNC_SYSTEMS_ROLE`, default
 the whole member list of the role it writes, so it may only write a role
 nobody else grants. The configured games role must start with `mesh-`;
 anything else (`admin`, `player`, `mod`, `publisher`, `uploader`, `play-*`)
-is refused: every tick logs an ERROR, counts `actions.gm_sync.errors`, and
-reads and writes nothing. The games BFF must admit `mesh-games-admin` from
+is refused: startup logs an ERROR, and every tick logs a WARN, counts
+`actions.gm_sync.errors`, and reads and writes nothing. The games BFF must admit `mesh-games-admin` from
 the games-realm issuer as a games admin.
 
 **Users are mapped through an explicit link, never by username.** The games
@@ -770,7 +770,7 @@ Run `native:compile` on a GraalVM JDK to produce the binary.
 - **The sync is inert until `hugmesh-generator` catches up.** It must seed
   `mesh-games-admin` in casdoor-games and set `GM_SYNC_GAMES_ROLE` to it.
   Until then the cluster's `GM_SYNC_GAMES_ROLE=admin` is refused on every tick
-  (ERROR log, `actions.gm_sync.errors`). That is the intended fail-closed state.
+  (ERROR at startup, then a WARN and `actions.gm_sync.errors` each tick). That is the intended fail-closed state.
 
 ## License
 

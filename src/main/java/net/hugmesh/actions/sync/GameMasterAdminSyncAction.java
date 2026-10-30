@@ -36,9 +36,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p><b>Owned-role guard.</b> The configured games role must start with
  * {@value #OWNED_ROLE_PREFIX}. Anything else (in particular {@code admin},
  * {@code player}, {@code mod}, {@code publisher}, {@code uploader},
- * {@code play-*}) is refused: the tick logs an ERROR, counts
- * {@code actions.gm_sync.errors}, and reads and writes nothing. The
- * service still boots (it also serves the registration endpoints).
+ * {@code play-*}) is refused: startup logs an ERROR, and every tick logs a
+ * WARN, counts {@code actions.gm_sync.errors}, and reads and writes nothing.
+ * The service still boots (it also serves the registration endpoints).
  *
  * <p><b>Identity mapping is an explicit link, never a username.</b> The
  * games realm has its own self-signup, so {@code threewizards/alice} can be
