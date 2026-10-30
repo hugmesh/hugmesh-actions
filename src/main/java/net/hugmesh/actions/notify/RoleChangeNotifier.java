@@ -132,6 +132,39 @@ public class RoleChangeNotifier {
                 .then();
     }
 
+    /**
+     * Same as {@link #roleChanged} but for a caller that already holds the
+     * affected user's MESH subject (the GM sync, whose games members are
+     * linked to a systems subject and whose games username need not match
+     * any systems username). No username lookup happens; {@code member} is
+     * used only for logs and the idempotency source id. A null/blank
+     * subject is SKIPPED (counted), never guessed.
+     */
+    public Mono<Void> roleChangedForSubject(String subject, String member, String roleLabel,
+                                            boolean granted, String sourceTable) {
+        UserNotificationClient c = client.getIfAvailable();
+        if (c == null) {
+            skipped.increment();
+            log.debug("[notify] dark (app.actions.notify.enabled=false) — skipping {} '{}' for {}",
+                    granted ? "grant" : "revoke", roleLabel, member);
+            return Mono.empty();
+        }
+        if (subject == null || subject.isBlank()) {
+            skipped.increment();
+            log.warn("[notify] no subject for '{}' — skipping", member);
+            return Mono.empty();
+        }
+        String label = member == null || member.isBlank() ? subject : member;
+        return deliver(c, subject, label, roleLabel, granted, sourceTable)
+                .onErrorResume(e -> {
+                    errors.increment();
+                    log.warn("[notify] delivery failed for {} ({} '{}'): {}",
+                            label, granted ? "grant" : "revoke", roleLabel, e.toString());
+                    return Mono.empty();
+                })
+                .then();
+    }
+
     private Mono<?> deliver(UserNotificationClient c, String subject, String username,
                             String roleLabel, boolean granted, String sourceTable) {
         String direction = granted ? "grant" : "revoke";

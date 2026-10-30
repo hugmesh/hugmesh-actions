@@ -63,7 +63,7 @@ bash e2e/scripts/bring-up-stack.sh stop
 
 ## What the suite proves
 
-### `cross-stack-admin-sync.feature` (3 scenarios)
+### `cross-stack-admin-sync.feature` (5 scenarios)
 
 Each scenario runs the full sync loop. It seeds state in both Casdoors,
 waits for a sync tick in `hugmesh-actions`, then asserts the Casdoor
@@ -78,19 +78,21 @@ sequenceDiagram
     participant P as /actuator/metrics
 
     T->>S: seed role state (grant or revoke game-master)
-    T->>T: wait 2.2 x GM_SYNC_INTERVAL_MS (4.4 s when the var is unset)\nthe service itself ticks every 60 s (see Known Gaps)
+    T->>T: wait 2.2 x GM_SYNC_INTERVAL_MS (4.4 s when the var is unset)\ncompose.yaml runs the service on the same 2 s tick
     A->>S: read current game-masters
-    A->>G: read current admins
+    A->>G: read links + current mesh-games-admin
     A->>G: apply diff (add / remove / skip)
     A->>P: increment gm_sync.added / .removed / .unchanged
-    T->>G: assert admin membership changed (or unchanged)
+    T->>G: assert mesh-games-admin membership changed (or unchanged)
     T->>P: assert counter incremented
 ```
 
 | Scenario | Arrange | Trigger | Assert |
 |---|---|---|---|
-| grant flows through | User exists on both Casdoors; no admin role on games | Grant `game-master` on systems | Next sync tick adds admin on games; `gm_sync.added` counter increments |
-| revoke flows through | User holds `game-master` on systems and admin on games | Remove `game-master` on systems | Next tick removes admin on games; `gm_sync.removed` counter increments |
+| grant flows through | Systems user with a LINKED games account | Grant `game-master` on systems | Next sync tick adds that account to `mesh-games-admin`; the role stays enabled and intact; `gm_sync.added` increments |
+| revoke flows through | Linked user holds `game-master`, synced | Remove `game-master` on systems | Next tick removes them from `mesh-games-admin`; `gm_sync.removed` increments |
+| same name, no link | `carol` on both Casdoors, no link | Grant `game-master` on systems | `threewizards/carol` gets nothing; `gm_sync.unlinked` increments |
+| native admin survives | A member of the games realm's own `admin` role | Any sync write | They are still in `admin` |
 | in-sync is no-op | Both sides have empty role sets | Sync tick | No Casdoor write occurs; `gm_sync.unchanged` counter increments |
 
 ### `per-role-access.feature` (6 scenarios)
@@ -114,18 +116,14 @@ what the scenarios assert; `—` means no scenario checks that cell.
 > `bring-up-stack.sh` sets it, so that caller would get `404`. A `200` grant needs
 > the switch on and a valid body. See the top-level README's Known Gaps section.
 
-> **What is actually asserted today.** `bring-up-stack.sh` now mints a
-> real per-role bearer token for all five authenticated tiers (see
-> [Token wiring](#token-wiring)). The mint is proven **offline only**: a
-> shimmed `curl` stands in for Casdoor's admin API and OAuth2 password grant
-> (`e2e/scripts/test-casdoor-seed.sh`). It has never run against a real
-> `casbin/casdoor` container. **A person still needs to run
-> `bash e2e/scripts/bring-up-stack.sh` and then `npm --prefix e2e
-> test` against a real compose stack** to confirm that the six
-> `per-role-access.feature` scenarios pass. See the root
-> README / hugmesh-actions#7 for what to look for. Meanwhile the
-> JVM tests `SecurityConfigPathRulesTest` and `SecurityConfigSpecPathsTest`
-> pin the SecurityConfig path-matchers without tokens.
+> **What is actually asserted today.** All 11 scenarios (`per-role-access.feature`
+> 6, `cross-stack-admin-sync.feature` 5) passed on 2026-10-30 against two real
+> `casbin/casdoor:3.80.0` containers, with the service jar run on a stock JRE
+> image and the seed functions called directly. On the pre-fix jar the sync
+> feature went red (4 of 5), and its tick left the games realm's `admin` role
+> empty, with `isEnabled=false` and a blank `displayName`. `bring-up-stack.sh`
+> itself builds the image, so that wrapper did not run; its seeding calls did.
+> The offline shim test (`e2e/scripts/test-casdoor-seed.sh`) still runs.
 
 ## Reports
 
@@ -270,12 +268,12 @@ It looks for tokens in this order:
 >    `CASDOOR_GAMES_URL`), so every minted token's `iss` matches
 >    whichever host dialled Casdoor to mint it.
 >
-> **Scope.** The seeder covers ONLY the per-role-access-matrix tokens above,
-> on the systems Casdoor. It does not provision the GAMES-side identities of
-> `cross-stack-admin-sync.feature`: the lowercase `game-master`/`admin` role
-> objects that feature grants directly, on **both** Casdoors, via
-> `helpers/casdoor.ts`. That gap is open, tracked as a follow-up
-> issue off hugmesh-actions#7.
+> **Scope.** `provision_and_mint_tokens` covers the per-role-access-matrix
+> tokens above, on the systems Casdoor. `provision_sync_identities` covers
+> what `cross-stack-admin-sync.feature` needs that is not per-scenario:
+> `game-master` on systems; on games the org, the sync's app,
+> `mesh-games-admin` and `admin`. The feature's own steps create the users
+> and write the `meshSub` link.
 >
 > **Fail-closed.** If ANY step fails — unresolved password,
 > unreachable Casdoor, a create/verify call that comes back wrong, a mint with no
@@ -293,8 +291,7 @@ It looks for tokens in this order:
 > per-persona token map) are unit-tested **offline**
 > against a shimmed `curl` standing in for Casdoor
 > (`e2e/scripts/test-casdoor-seed.sh`). No live Docker, no real
-> Casdoor. **The mint has never run against a real
-> `casbin/casdoor` container.** A person still needs to
+> Casdoor. **The mint was run against a real `casbin/casdoor:3.80.0` container on 2026-10-30.** A person still needs to
 > run `bash e2e/scripts/bring-up-stack.sh` against the real
 > `compose.yaml` and confirm three things: it exits 0, `e2e/.tokens.json` holds five
 > non-empty, non-identical tokens, and `npm --prefix e2e test` then
@@ -336,35 +333,3 @@ The Casdoor OAuth app's own **client secret** (`CASDOOR_PLATFORM_CLIENT_SECRET` 
 same file's `generate_client_secret` DOES generate it, because it has no cross-repo
 consumer to stay in sync with, unlike the shared human test password.
 
-## Known Gaps / TODO
-
-- **`GM_SYNC_INTERVAL_MS` is never shortened for e2e runs.**
-  `bring-up-stack.sh` used to claim this override twice, in its header
-  and in a body comment about "an e2e overlay that shortens the sync tick". Both
-  claims are gone from the script (it now says the opposite),
-  but **the gap is unfixed**. No overlay file exists. The script runs
-  `docker compose -f compose.yaml up -d --wait` against the repo-root
-  `compose.yaml`, which sets no `GM_SYNC_INTERVAL_MS` on the
-  `hugmesh-actions` service. So the service runs the
-  `application.yml` default of `60000`ms
-  (`src/main/resources/application.yml:47`,
-  `${GM_SYNC_INTERVAL_MS:60000}`). Meanwhile
-  `waitForSyncTick()` (`e2e/features/steps/helpers/actions.ts:38-43`)
-  falls back to `process.env.GM_SYNC_INTERVAL_MS ?? '2000'` and waits only
-  `2.2×` that value (~4.4 s) when the env var is unset. As wired
-  today, the sync scenarios wait about 4.4 s for a tick that fires every 60 s.
-  That is a likely source of flakes and failures
-  in `cross-stack-admin-sync.feature`. (The header comment of
-  `cross-stack-admin-sync.feature` also claims a 5 s interval; that is
-  equally untrue.) Either add the missing compose override (set
-  `GM_SYNC_INTERVAL_MS=2000` on the `hugmesh-actions` service for the
-  e2e stack) or raise the helper's default/timeout to match the real
-  60 s interval.
-
-- **`cross-stack-admin-sync.feature`'s Casdoor identities are still
-  unseeded.** `casdoor-seed.sh` (Decision 62) provisions only the
-  per-role-access-matrix's org/roles/app/users on the SYSTEMS Casdoor.
-  Nothing in `bring-up-stack.sh` creates the sync feature's own `game-master`
-  (systems) / `admin` (games) role objects or the games-side org/app.
-  `helpers/casdoor.ts`'s `ensureUser` / `addRoleMember` calls assume they
-  already exist. Tracked as a follow-up off hugmesh-actions#7.

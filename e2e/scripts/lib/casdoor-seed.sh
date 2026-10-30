@@ -14,13 +14,11 @@
 # test user per role tier — then mints a real password-grant bearer
 # token for each and writes e2e/.tokens.json.
 #
-# SCOPE. This seeds ONLY what issue #7 / Decision 62 is about: the five
-# per-role-access-matrix tokens, systems Casdoor only. The GAMES Casdoor
-# side (cross-stack-admin-sync.feature needs its OWN 'game-master'/
-# 'admin' role objects on both Casdoors, seeded per-scenario today by
-# helpers/casdoor.ts against whatever org/app already exists) is a
-# SEPARATE, still-open gap that this change does not attempt to close —
-# see the note this seeder's caller leaves in bring-up-stack.sh.
+# SCOPE. provision_and_mint_tokens seeds the five per-role-access-matrix
+# tokens (issue #7 / Decision 62), systems Casdoor only.
+# provision_sync_identities seeds what cross-stack-admin-sync.feature
+# needs on BOTH Casdoors: `game-master` on systems; on games the org, the
+# sync's app, the sync-owned `mesh-games-admin` and the realm's own `admin`.
 #
 # ADMIN SESSION. Every provisioning call below authenticates with the
 # casbin/casdoor FRESH-BOOT default admin session (org "built-in", user
@@ -313,5 +311,62 @@ provision_and_mint_tokens() {
   fi
 
   _cs_log "minted 5/5 per-role bearer tokens into ${tokens_json_path}"
+  return 0
+}
+
+# provision_sync_identities: everything cross-stack-admin-sync.feature needs
+# that is not per-scenario. Run AFTER provision_and_mint_tokens, which creates
+# the systems org and app. Any failure returns 1.
+provision_sync_identities() {
+  command -v jq   >/dev/null 2>&1 || { _cs_fail "jq is required"; return 1; }
+  command -v curl >/dev/null 2>&1 || { _cs_fail "curl is required"; return 1; }
+
+  local sys_org="${CASDOOR_PLATFORM_ORG:-hugmesh}"
+  local sys_base="${CASDOOR_PLATFORM_SEED_URL:-http://localhost:8001}"
+  local games_org="${CASDOOR_GAMES_ORG:-threewizards}"
+  local games_base="${CASDOOR_GAMES_SEED_URL:-http://localhost:8002}"
+  local games_cid="${CASDOOR_GAMES_CLIENT_ID:-hugmesh-actions}"
+  local games_secret="${CASDOOR_GAMES_CLIENT_SECRET:-}"
+
+  if [ -z "${games_secret}" ]; then
+    _cs_fail "CASDOOR_GAMES_CLIENT_SECRET is empty — bring-up-stack.sh must generate and export it BEFORE 'docker compose up'"
+    return 1
+  fi
+
+  local jar
+  jar="$(mktemp "${TMPDIR:-/tmp}/casdoor-seed-cookies.XXXXXX")" || { _cs_fail "mktemp failed"; return 1; }
+  # shellcheck disable=SC2064
+  trap "rm -f '${jar}'" RETURN
+
+  if ! _cs_login "${sys_base}" "${jar}"; then
+    _cs_fail "Casdoor admin login at ${sys_base}"
+    return 1
+  fi
+  if ! _cs_ensure_role "${sys_base}" "${jar}" "${sys_org}" "game-master"; then
+    _cs_fail "could not create/verify Casdoor role ${sys_org}/game-master"
+    return 1
+  fi
+
+  : > "${jar}"
+  if ! _cs_login "${games_base}" "${jar}"; then
+    _cs_fail "Casdoor admin login at ${games_base}"
+    return 1
+  fi
+  if ! _cs_ensure_org "${games_base}" "${jar}" "${games_org}"; then
+    _cs_fail "could not create/verify Casdoor org ${games_org} at ${games_base}"
+    return 1
+  fi
+  if ! _cs_ensure_app "${games_base}" "${jar}" "${games_org}" "${games_cid}" "${games_secret}"; then
+    _cs_fail "could not create/verify Casdoor app ${games_cid} at ${games_base}"
+    return 1
+  fi
+  local role
+  for role in mesh-games-admin admin; do
+    if ! _cs_ensure_role "${games_base}" "${jar}" "${games_org}" "${role}"; then
+      _cs_fail "could not create/verify Casdoor role ${games_org}/${role}"
+      return 1
+    fi
+  done
+  _cs_log "seeded the sync's identities on both Casdoors"
   return 0
 }

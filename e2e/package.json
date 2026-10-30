@@ -11,6 +11,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.49.0",
-    "playwright-bdd":    "8.7.0"
+    "playwright-bdd":    "8.5.0"
   }
 }

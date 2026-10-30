@@ -19,7 +19,8 @@ losing it on a restart only delays an auto-revoke.
 | **Trusts** | The **hugmesh.net Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
 
 The reconcilers keep two platform invariants true after the fact, not only at
-sign-in. A `game-master` on hugmesh.net becomes an `admin` in the **optional,
+sign-in. A `game-master` on hugmesh.net who has a LINKED games account becomes a
+`mesh-games-admin` in the **optional,
 opt-in games realm** (the games service is OFF by default and exists only
 when the build is generated with `--enable-games`). A platform admin who loses
 their GitHub org-admin reach loses hugmesh.net admin (when the GitHub grant
@@ -44,7 +45,7 @@ flowchart LR
     BFF["hugmesh-admin-bff-api<br/>(internal first-login hook<br/>X-Internal-Token + mTLS)"]
 
     GM -->|"read game-master"| SC
-    GM -->|"read and write admin<br/>(needs the games Casdoor)"| GC
+    GM -->|"read links, write mesh-games-admin<br/>(never admin; needs the games Casdoor)"| GC
     GHA -.->|"grant/deny systems admin<br/>(disabled by default)"| SC
     GHA -.->|"check org-admin reach<br/>(disabled by default)"| GH
     REV -.->|"prune-only revoke<br/>(no-op when disabled)"| SC
@@ -68,43 +69,74 @@ registration step-up guard, also shipped but **gated off by default**
 
 ## Actions
 
-### `GameMasterAdminSyncAction` — systems game-master → games admin
+### `GameMasterAdminSyncAction` — systems games-admin → games `mesh-games-admin`
 
 > This action belongs to the **optional games service** (HugMesh Game
 > Studio), which is OFF by default and on only when a build is
 > generated with `--enable-games` / `ENABLE_GAMES=true`. Without games there
 > is no games Casdoor to reach. Each tick reads both Casdoors together, so
-> the tick fails and counts `actions.gm_sync.errors`. The action
-> propagates a domain admin/superadmin who holds the `game-master` role
-> into the games realm as a games admin.
+> the tick fails and counts `actions.gm_sync.errors`.
 
-It propagates the `game-master` role from the hugmesh.net Casdoor into
-the `admin` role on the games Casdoor. It runs every
-`app.actions.game-master-sync.interval-ms` (default **60 s**; first tick after
-`initial-delay-ms`, default 5 s). The role names are
-`app.actions.game-master-sync.systems-role` (`GM_SYNC_SYSTEMS_ROLE`, default
-`game-master`) and `…games-role` (`GM_SYNC_GAMES_ROLE`, default `admin`). Those
-are defaults only. The in-cluster deployment
-(`hugmesh-generator/specs/cluster/manifests/hugmesh-apis/deployment.yaml`) sets
-`GM_SYNC_SYSTEMS_ROLE=ROLE_GAMES_ADMIN`, so there the sync mirrors
-`ROLE_GAMES_ADMIN` on systems into `admin` on games.
+The games realm and the mesh are two separate identity realms. A games
+player can sign in with a games-realm account and never be a mesh user; a
+mesh user reaches games through the mesh shell. This action is the one
+automatic bridge: it mirrors a systems role (`GM_SYNC_SYSTEMS_ROLE`, default
+`game-master`; the cluster sets `ROLE_GAMES_ADMIN`) into a games-realm role
+**the sync owns outright** (`GM_SYNC_GAMES_ROLE`, default
+`mesh-games-admin`). It runs every `app.actions.game-master-sync.interval-ms`
+(default **60 s**; first tick after `initial-delay-ms`, default 5 s).
 
-Each tick reads both role memberships. It computes the desired games-admin
-set by rewriting every systems member's `<org>/<username>` identifier to
-the games organization (`hugmesh/alice` →
-`threewizards/alice` — the literal Casdoor org identifiers,
-`app.casdoor.platform.organization` / `app.casdoor.games.organization`,
-neither yet renamed). It POSTs the new membership to the games Casdoor
-**only when it differs**. A tick with no change writes nothing. The per-Casdoor
-side-effect is wrapped in a Resilience4j `@CircuitBreaker(name="casdoor")`, so a
-stalled Casdoor opens the breaker and the next tick retries instead of piling
-up work.
+**It never writes the games realm's own `admin` role.** The sync replaces
+the whole member list of the role it writes, so it may only write a role
+nobody else grants. The configured games role must start with `mesh-`;
+anything else (`admin`, `player`, `mod`, `publisher`, `uploader`, `play-*`)
+is refused: startup logs an ERROR, and every tick logs a WARN, counts
+`actions.gm_sync.errors`, and reads and writes nothing. The games BFF must admit `mesh-games-admin` from
+the games-realm issuer as a games admin.
 
-| systems `game-master` | games `admin` (before) | games `admin` (after) |
+**Users are mapped through an explicit link, never by username.** The games
+realm has its own self-signup, so `threewizards/alice` may be a different
+person from `hugmesh/alice`. Per systems member, the tick:
+
+1. resolves the systems user to its id (the JWT `sub`) with `get-user`;
+   unknown, forbidden or deleted systems users are skipped;
+2. finds the games user whose `properties.meshSub`
+   (`GM_SYNC_LINK_PROPERTY`) equals that id exactly. Casdoor's default
+   account items make `Properties` admin-modifiable only, so a player
+   cannot forge the link (measured on `casbin/casdoor:3.80.0`: a user's own
+   `update-user` silently drops a properties change). Only an admin-side
+   link flow may write it;
+3. with exactly one usable linked account, adds `threewizards/<that name>`;
+   otherwise skips the member and counts `actions.gm_sync.unlinked`. A bare
+   name is never written, so there is no dangling member for a later
+   sign-up to inherit.
+
+A read error on either side fails the tick before any write, so a transient
+failure cannot shrink the desired set and revoke someone. The write is a
+read-modify-write of the whole role object (`CasdoorClient.setRoleMembers`):
+Casdoor's `update-role` writes every column, and on 3.80.0 a partial
+`{owner,name,users}` body set `isEnabled=false` and cleared `displayName`,
+`description`, `roles` and `domains`. The client refuses to write a disabled
+role, and confirms each write by reading the role back (members equal the
+desired set, `isEnabled` still true); Casdoor answers `Affected` even for a
+no-op, so the response alone proves nothing. An unconfirmed write fails the
+tick. A tick with no change writes nothing. The per-Casdoor side effect is
+wrapped in a Resilience4j `@CircuitBreaker(name="casdoor")`.
+
+| systems role (linked games account) | games `mesh-games-admin` before | after |
 |---|---|---|
-| `{alice, bob}` | `{alice}` | `{alice, bob}` |
-| `{alice}` | `{alice, dropped}` | `{alice}` |
-| `{alice}` | `{alice}` | `{alice}` (no-op) |
+| `{alice→tw/alice, bob→tw/bobby}` | `{tw/alice}` | `{tw/alice, tw/bobby}` |
+| `{alice→tw/alice}` | `{tw/alice, tw/dropped}` | `{tw/alice}` |
+| `{alice→tw/alice, carol (no link)}` | `{tw/alice}` | `{tw/alice}` (no-op; `unlinked`+1) |
+| any | games `admin` | never read, never written |
+
+**Credentials.** Casdoor 3.80.0 grants any application's client
+credentials admin rights over every organization on that Casdoor (measured:
+the games portal app's Basic credentials could `update-role` in the
+games org and also `add-role` in `built-in`). So a "role-write-only" sync
+application cannot be expressed in Casdoor. The games-side credential should
+still be a dedicated application, not the public player-portal app, so it
+can be rotated and revoked without touching player sign-in.
 
 #### Notifications v1 — first caller (`RoleChangeNotifier`)
 
@@ -533,10 +565,11 @@ Prometheus is exposed at `/actuator/prometheus` (gated to
 
 | Name | Type | Meaning |
 |---|---|---|
-| `actions.gm_sync.added` | counter | Members added to games-admin during a sync |
-| `actions.gm_sync.removed` | counter | Members removed from games-admin during a sync |
+| `actions.gm_sync.added` | counter | Members added to the owned games role (`mesh-games-admin`) during a sync |
+| `actions.gm_sync.removed` | counter | Members removed from the owned games role during a sync |
 | `actions.gm_sync.unchanged` | counter | Sync ticks where membership already matched (no write) |
-| `actions.gm_sync.errors` | counter | Sync ticks that failed to read or write Casdoor |
+| `actions.gm_sync.errors` | counter | Sync ticks that failed to read or write Casdoor, had a write not confirmed by read-back, or refused an unowned games role |
+| `actions.gm_sync.unlinked` | counter | Systems role members skipped because no single usable games account is linked to them |
 | `actions.gh_org_admin.granted` | counter | Users granted systems-admin via GitHub org membership |
 | `actions.gh_org_admin.revoked` | counter | Users stripped of systems-admin after losing GitHub reach |
 | `actions.gh_org_admin.denied` | counter | Sign-up evaluate requests rejected (no HugMesh org admin) |
@@ -569,7 +602,8 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_PLATFORM_URL`) | systems Casdoor |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
-| GM sync roles | `app.actions.game-master-sync.systems-role` / `…games-role` (`GM_SYNC_SYSTEMS_ROLE` / `GM_SYNC_GAMES_ROLE`) | `game-master` / `admin` (the cluster deployment sets `ROLE_GAMES_ADMIN` as the systems role) |
+| GM sync roles | `app.actions.game-master-sync.systems-role` / `…games-role` (`GM_SYNC_SYSTEMS_ROLE` / `GM_SYNC_GAMES_ROLE`) | `game-master` / `mesh-games-admin` (the cluster deployment sets `ROLE_GAMES_ADMIN` as the systems role; the games role must start with `mesh-`) |
+| GM sync link | `app.actions.game-master-sync.link-property` (`GM_SYNC_LINK_PROPERTY`) | `meshSub` (games-user property holding the linked systems `sub`) |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
 | GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `hugmesh,HugMesh` (both casings — the repo-admin reach path matches the repo owner's login case-sensitively) |
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
@@ -613,7 +647,7 @@ private `hugmesh-commons`. See `hugmesh-generator/docs/LOCAL-STACK.md`, "Cold
 builds". (UNVERIFIED here: a cold build with no build args.)
 
 The compose stack brings up two Casdoor instances (each with its own
-Postgres), so you can exercise the game-master → admin sync end to end
+Postgres), so you can exercise the game-master → mesh-games-admin sync end to end
 without production endpoints. The action service is stateless:
 restarting it replays the next tick against live Casdoor state.
 
@@ -725,24 +759,18 @@ Run `native:compile` on a GraalVM JDK to produce the binary.
   The scenario proves "admin is past the auth gate", not the grant outcome.
   Setting `GH_ORG_ADMIN_ENABLED=true` alone would not make it assert `200`,
   since it never sends a body that could pass the grant.
-- **The e2e per-role token mint (Decision 62, operator, 2026-09-18,
-  hugmesh-actions#7) is implemented but UNVERIFIED against a live stack.**
-  `e2e/scripts/lib/casdoor-seed.sh` provisions the systems Casdoor (org,
-  five role objects, the `hugmesh-actions` OAuth app, one user per role
-  tier) and mints five per-role bearer tokens into `e2e/.tokens.json`. It is
-  proven **offline only**: `e2e/scripts/test-casdoor-seed.sh` runs the control
-  flow against a shimmed `curl`, never a real `casbin/casdoor` container.
-  `bring-up-stack.sh` fails closed by default (non-zero exit, never a partial
-  token map). See `e2e/README.md`'s "Token wiring" for the detail and the
-  `E2E_ALLOW_ANONYMOUS_ONLY=1` opt-out (which skips the seeder, not the
-  e2e-password check). **A person still needs to run it against the real
-  compose stack** and confirm `npm --prefix e2e test` passes all six
-  `per-role-access.feature` scenarios, not just the anonymous one.
-- **`cross-stack-admin-sync.feature`'s own Casdoor identities remain
-  unseeded.** Decision 62's seeder covers only the per-role-access-matrix
-  on the systems Casdoor. The sync feature's `game-master`/`admin` role
-  objects on both Casdoors are a separate, open gap. See
-  `e2e/README.md`'s Known Gaps.
+- **`bring-up-stack.sh` has not run end to end against the real stack.** Its
+  seeding functions and all 11 e2e scenarios ran on 2026-10-30 against two real
+  `casbin/casdoor:3.80.0` containers, with the jar on a stock JRE image. The
+  wrapper builds the service image, so that step did not run. See
+  `e2e/README.md`'s "Token wiring".
+- **Nothing writes the `meshSub` link yet.** Until the games-side link flow or
+  an admin provisioning action exists, every systems member is skipped and
+  counted in `actions.gm_sync.unlinked`, so `mesh-games-admin` stays empty.
+- **The sync is inert until `hugmesh-generator` catches up.** It must seed
+  `mesh-games-admin` in casdoor-games and set `GM_SYNC_GAMES_ROLE` to it.
+  Until then the cluster's `GM_SYNC_GAMES_ROLE=admin` is refused on every tick
+  (ERROR at startup, then a WARN and `actions.gm_sync.errors` each tick). That is the intended fail-closed state.
 
 ## License
 

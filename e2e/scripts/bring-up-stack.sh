@@ -11,19 +11,10 @@
 # repo's OWN Casdoor seeder, lib/casdoor-seed.sh (Decision 62, operator,
 # 2026-09-18, hugmesh-actions#7).
 #
-# WHAT THIS SCRIPT STILL DOES NOT DO:
-#
-#   • hugmesh-actions DOES NOT RUN WITH GM_SYNC_INTERVAL_MS=2000. There
-#     is no e2e compose overlay and compose.yaml sets no override, so
-#     the service runs application.yml's `${GM_SYNC_INTERVAL_MS:60000}`
-#     default of 60s. Unrelated to Decision 62 — see "Known Gaps / TODO"
-#     in e2e/README.md.
-#   • cross-stack-admin-sync.feature's GAMES-side identities (the
-#     lowercase 'game-master'/'admin' role objects the sync test grants
-#     directly, on BOTH Casdoors) are NOT provisioned by this script.
-#     Decision 62 / issue #7 was scoped to the per-role-access-matrix
-#     tokens below; that is a separate, still-open gap — see
-#     e2e/README.md.
+# It also seeds what cross-stack-admin-sync.feature needs on BOTH Casdoors
+# (lib/casdoor-seed.sh provision_sync_identities), and compose.yaml runs
+# the sync on a 2 s tick (GM_SYNC_INTERVAL_MS) so the scenarios' wait
+# crosses a real tick.
 #
 # Usage:
 #   bash e2e/scripts/bring-up-stack.sh    # bring up + wait healthy +
@@ -83,8 +74,7 @@ fi
 : "${CASDOOR_GAMES_CLIENT_SECRET:=$(generate_client_secret 32)}"
 export CASDOOR_PLATFORM_CLIENT_SECRET CASDOOR_GAMES_CLIENT_SECRET
 
-# The repo-root compose.yaml, as-is. There is NO e2e overlay: nothing
-# shortens the sync tick. See the header for what that costs you.
+# The repo-root compose.yaml, as-is.
 docker compose -f compose.yaml up -d --wait
 
 echo "→ Waiting for both Casdoors..."
@@ -138,6 +128,10 @@ done
 # did not (fully) perform. Unit-tested offline (shimmed curl/docker, no
 # live Casdoor) by test-token-mint-guard.sh.
 if mint_tokens_or_fail e2e/.tokens.json; then
+  if [ "${E2E_ALLOW_ANONYMOUS_ONLY:-}" != "1" ] && ! provision_sync_identities; then
+    echo "✗ bring-up-stack.sh FAILED: the sync feature's Casdoor identities were not seeded." >&2
+    exit 1
+  fi
   if [ "${E2E_ALLOW_ANONYMOUS_ONLY:-}" = "1" ]; then
     # NOTE: single quotes, not backticks. Backticks inside a double-quoted
     # string are COMMAND SUBSTITUTION, so the previous spelling actually

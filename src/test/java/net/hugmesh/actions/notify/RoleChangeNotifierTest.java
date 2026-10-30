@@ -151,6 +151,36 @@ class RoleChangeNotifierTest {
     }
 
     @Test
+    void forSubject_delivers_toThatSubject_withoutAnyUsernameLookup() {
+        UserNotificationClient client = Mockito.mock(UserNotificationClient.class);
+        when(client.deliver(any())).thenReturn(Mono.just(new UserNotificationClient.Outcome(true, false, null)));
+        CasdoorClient casdoor = Mockito.mock(CasdoorClient.class);
+
+        StepVerifier.create(notifier(providerOf(client), casdoor).roleChangedForSubject(
+                        "sub-1", "threewizards/bobby", "mesh-games-admin on hugmesh.games", true, "actions_gm_sync"))
+                .verifyComplete();
+
+        org.mockito.ArgumentCaptor<UserNotificationClient.Delivery> sent =
+                org.mockito.ArgumentCaptor.forClass(UserNotificationClient.Delivery.class);
+        verify(client).deliver(sent.capture());
+        assertThat(sent.getValue().userSubject()).isEqualTo("sub-1");
+        verify(casdoor, never()).getUserId(any());
+    }
+
+    @Test
+    void forSubject_blankSubject_skips_andDeliveryFailureIsAbsorbed() {
+        UserNotificationClient client = Mockito.mock(UserNotificationClient.class);
+        when(client.deliver(any())).thenReturn(Mono.error(new IllegalStateException("boom")));
+        CasdoorClient casdoor = Mockito.mock(CasdoorClient.class);
+        RoleChangeNotifier n = notifier(providerOf(client), casdoor);
+
+        StepVerifier.create(n.roleChangedForSubject(" ", "m", "r", false, "s")).verifyComplete();
+        verify(client, never()).deliver(any());
+
+        StepVerifier.create(n.roleChangedForSubject("sub", "m", "r", false, "s")).verifyComplete();
+    }
+
+    @Test
     void usernameOf_stripsOrgPrefix_orPassesThroughBareUsername() {
         assertThat(RoleChangeNotifier.usernameOf("hugmesh-systems/alice")).isEqualTo("alice");
         assertThat(RoleChangeNotifier.usernameOf("alice")).isEqualTo("alice");
