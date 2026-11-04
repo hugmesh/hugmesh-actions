@@ -649,33 +649,48 @@ The pipeline has three stages (`stages: [test, build, pentest]`):
 
 The version is `pom.xml` `<project><version>`, today **`0.2.0-beta.1`**:
 built and tested, not yet proven on a live mesh. A beta is
-`MAJOR.MINOR.PATCH-beta.N`; a fix during a beta raises N. A published version
-is never reused and never a SNAPSHOT.
+`MAJOR.MINOR.PATCH-beta.N` and is cut from `main`; a fix during a beta raises N.
+A stable is `MAJOR.MINOR.PATCH` and is cut from its `release/X.Y` branch; a fix
+to a stable line is the next patch on that branch. A published version is never
+reused and never a SNAPSHOT.
 
 `.github/workflows/release.yml` ("Release image") builds this `Dockerfile` and
-pushes `ghcr.io/hugmesh/hugmesh-actions`:
+pushes `ghcr.io/hugmesh/hugmesh-actions`. The tag decides the release channel
+(`scripts/release-channel.sh`, tested by `scripts/test-release-channel.sh`,
+which the `version` job runs first):
 
 | Event | Image tags | GitHub Release |
 |---|---|---|
 | push to `main` | `:main`, `:sha-<12 hex>` | none |
-| push of tag `v<version>` | `:<version>`, `:beta`, `:sha-<12 hex>` | prerelease, not latest |
-| `workflow_dispatch` on a `v*` tag | same as the tag push (re-run) | created if missing |
-| `workflow_dispatch` on `main` | same as a push to `main` | none |
-| anything else | refused | none |
+| push to `release/X.Y` | `:sha-<12 hex>` | none |
+| push of tag `vX.Y.Z-beta.N` (commit on `main`) | `:X.Y.Z-beta.N`, `:beta`, `:sha-<12 hex>` | prerelease, not latest |
+| push of tag `vX.Y.Z` (commit on `release/X.Y`), newest stable line | `:X.Y.Z`, `:X.Y`, `:latest`, `:sha-<12 hex>` | release, marked latest |
+| push of tag `vX.Y.Z` on an older stable line | `:X.Y.Z`, `:X.Y`, `:sha-<12 hex>` | release, not latest |
+| `workflow_dispatch` on `main`, `release/X.Y` or a `v*` tag | same as the push | same as the push |
+| anything else (another `release/*` name, an `-rc.N` tag, ...) | refused | none |
 
 The first job (`version`) refuses a SNAPSHOT, a tag that does not equal the pom
-version, and a tag whose commit is not on `main`. A release run also refuses
-when `:<version>` is already in the registry. `:latest` is pushed only for a
-final release (no `-` in the version); none exists yet.
+version, a beta tag whose commit is not on `main`, and a stable tag whose commit
+is not on `release/X.Y`. A release run also refuses when `:X.Y.Z` is already in
+the registry; the floating tags `:beta`, `:X.Y` and `:latest` move. `:X.Y` and
+`:latest` move only when no newer published stable exists on that line or on
+any line; that is decided again right before the push and right before the
+GitHub Release is created, so a re-run never moves them backwards. Every pushed
+tag is checked to resolve to the signed digest.
 
 To publish a beta: merge the version bump to `main`, then tag that commit
-`v<version>` (annotated) and push the tag. To re-run a release, dispatch the
-workflow on the tag (`gh workflow run release.yml --ref v<version>`).
+`vX.Y.Z-beta.N` (annotated) and push the tag. To publish a stable: merge the
+version bump to `release/X.Y`, then tag that commit `vX.Y.Z`. Dispatching the
+workflow on a tag (`gh workflow run release.yml --ref v<version>`) re-runs it
+only while `:X.Y.Z` is not in the registry; once it is, the overwrite guard
+refuses the run. A published version is fixed forward (the next `-beta.N`, or
+the next patch on `release/X.Y`), never rebuilt.
 
 **Runner.** Every job uses the runner in the repository variable
 `RUNS_ON_PUBLISH` (a JSON array such as `["self-hosted","Linux","X64"]`), but
-only for `main` and `v*` tags and never for a pull request. Anything else, or
-an unset variable, runs on hosted `ubuntu-latest`. Deleting the variable is the
+only for `main` and `v*` tags and never for a pull request. Anything else
+(`release/X.Y` branches included), or an unset variable, runs on hosted
+`ubuntu-latest`. Deleting the variable is the
 off switch. The workflow has no `pull_request` trigger.
 
 **Private libraries.** `net.hugmesh:hugmesh-commons` (and its parent

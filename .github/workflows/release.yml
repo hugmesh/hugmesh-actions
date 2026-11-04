@@ -1,26 +1,54 @@
 name: Release image
 
 # Builds this Dockerfile and pushes ghcr.io/hugmesh/hugmesh-actions.
-# The version comes from pom.xml <project><version> (a beta such as 0.2.0-beta.1).
+# The version comes from pom.xml <project><version> (X.Y.Z or X.Y.Z-beta.N).
 #
-# WHAT RUNS WHEN
-#   push to main                     -> :main and :sha-<12 hex>. Never a version tag, never :latest.
-#   push of a tag v<version>         -> :<version>, :beta and :sha-<12 hex>, then a GitHub
-#                                       Release marked prerelease and not latest.
-#   workflow_dispatch on a v* tag    -> the same as the tag push (the re-run path).
-#   workflow_dispatch on main        -> the same as a push to main.
-#   anything else                    -> refused by the `version` job.
-# The tag is the publish decision: it must equal the pom version, it must point at a commit
-# on main, and a version that is already in the registry is never pushed again.
-# `:latest` is pushed only for a final release (no '-' in the version). None exists yet.
+# hugmesh-release-channels: beta+stable
+# The release channel comes from the TAG (scripts/release-channel.sh decides
+# every case below and is tested by scripts/test-release-channel.sh):
+#
+#   push to main                   -> :main and :sha-<12 hex>
+#   push to release/X.Y            -> :sha-<12 hex> only (the same main-style run
+#                                     the release script checks before it tags)
+#   push of tag vX.Y.Z-beta.N      -> :X.Y.Z-beta.N, :beta and :sha-<12 hex>,
+#                                     plus a GitHub prerelease (never Latest).
+#                                     The commit must be on main.
+#   push of tag vX.Y.Z (stable)    -> :X.Y.Z, :X.Y, :latest and :sha-<12 hex>,
+#                                     plus a GitHub release marked Latest. The
+#                                     commit must be on release/X.Y. A patch on an
+#                                     older line (a newer stable vA.B.C is
+#                                     published) moves :X.Y but not :latest, and
+#                                     its GitHub release is not marked Latest.
+#   workflow_dispatch on main, a release/X.Y branch or a v* tag
+#                                  -> the same as the push. For a tag this is a
+#                                     re-run only while :X.Y.Z is NOT in the
+#                                     registry: once it is, the overwrite guard
+#                                     refuses the run (nothing is pushed and no
+#                                     GitHub Release is made). Fix forward instead.
+#   anything else                  -> refused by the `version` job (this includes
+#                                     release/<anything that is not X.Y>)
+#
+# A tag must equal "v" + the pom version. :X.Y.Z is never overwritten; the
+# floating tags :beta, :X.Y and :latest move. Every tag a run pushes points at
+# one digest, and that digest is signed and attested.
+#
+# The version job only refuses early. "Re-run failed jobs" reuses its outputs,
+# however old they are, and a newer stable can publish while a run is building,
+# so whether :X.Y and :latest move is decided again by the same script right
+# before the push and right before gh release create. No later job reads the
+# version job's answer, so a re-run cannot move a floating tag to an older line.
+# A window of seconds remains between that check and the registry write (a
+# registry has no compare-and-swap); if a concurrent run wins it, the digest
+# check in the image job fails that run.
 #
 # RUNNER: every job asks for the runner named by the repository variable RUNS_ON_PUBLISH
 # (a JSON array, for example ["self-hosted","Linux","X64"]) ONLY for a non-PR event on
-# refs/heads/main or a v* tag. Every other case, and an unset variable, uses hosted
-# ubuntu-latest. Deleting RUNS_ON_PUBLISH is the off switch. This workflow has no
-# pull_request trigger and must never get one: a self-hosted runner must never run code from
-# a fork. (The expression is not a security boundary on a public repository, because a fork's
-# PR brings its own workflow files. The runner group settings are the boundary.)
+# refs/heads/main or a v* tag. Every other case (release/X.Y branches included), and an
+# unset variable, uses hosted ubuntu-latest. Deleting RUNS_ON_PUBLISH is the off switch.
+# This workflow has no pull_request trigger and must never get one: a self-hosted runner
+# must never run code from a fork. (The expression is not a security boundary on a public
+# repository, because a fork's PR brings its own workflow files. The runner group settings
+# are the boundary.)
 #
 # PRIVATE MAVEN LIBRARIES: the Maven build inside the Dockerfile resolves the net.hugmesh
 # libraries (hugmesh-commons and its parent hugmesh-parent) from GitHub Packages through
@@ -31,7 +59,7 @@ name: Release image
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
     tags: ['v*']
   workflow_dispatch: {}
 
@@ -52,14 +80,19 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       kind: ${{ steps.v.outputs.kind }}
+      channel: ${{ steps.v.outputs.channel }}
+      line: ${{ steps.v.outputs.line }}
       sha12: ${{ steps.v.outputs.sha12 }}
     steps:
       - name: Check out
         uses: actions/checkout@v4
         with:
-          # Full history and every branch, so the tag's commit can be checked against main.
+          # Full history, so the tag's commit can be checked against main or release/X.Y.
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Self-test the release channel rules
+        run: bash scripts/test-release-channel.sh
 
       - name: Read the pom version and check it against the ref
         id: v
@@ -72,7 +105,7 @@ jobs:
           fi
           case "${version}" in
             *SNAPSHOT*)
-              echo "::error::pom.xml version is ${version}. A SNAPSHOT is never published: set a beta such as 0.2.0-beta.1."
+              echo "::error::pom.xml version is ${version}. A SNAPSHOT is never published: set a beta such as 0.2.0-beta.1 (on main) or a stable such as 0.2.0 (on release/0.2)."
               exit 1
               ;;
           esac
@@ -86,34 +119,12 @@ jobs:
               exit 1
               ;;
           esac
-          case "${GITHUB_REF}" in
-            refs/tags/v*)
-              tag_version="${GITHUB_REF_NAME#v}"
-              if [ "${tag_version}" != "${version}" ]; then
-                echo "::error::tag ${GITHUB_REF_NAME} does not match pom.xml version ${version}. Tag the commit whose pom says ${tag_version}, or fix the tag."
-                exit 1
-              fi
-              if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
-                echo "::error::tag ${GITHUB_REF_NAME} points at $(git rev-parse HEAD), which is not on main. A release is tagged on main only."
-                exit 1
-              fi
-              kind=release
-              ;;
-            refs/heads/main)
-              kind=main
-              ;;
-            *)
-              echo "::error::refusing ref ${GITHUB_REF}. Publish from main (image :main) or from a v<version> tag (a release)."
-              exit 1
-              ;;
-          esac
-          sha=$(git rev-parse HEAD)
-          {
-            echo "version=${version}"
-            echo "kind=${kind}"
-            echo "sha12=${sha:0:12}"
-          } >> "${GITHUB_OUTPUT}"
-          echo "version ${version}, kind ${kind}, commit ${sha}"
+          # Channel, branch rules and image tags: scripts/release-channel.sh (its
+          # version check is narrower than the regex above: X.Y.Z or X.Y.Z-beta.N).
+          # Capture first, append after: a refusal midway writes no partial outputs.
+          out="$(VERSION="${version}" IMAGE_NAME="${IMAGE}" VERSION_FILE=pom.xml bash scripts/release-channel.sh)"
+          printf '%s\n' "${out}" >> "${GITHUB_OUTPUT}"
+          echo "${out}"
 
   image:
     name: Build and push image
@@ -135,6 +146,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       # PREFLIGHT, cross-repo package read. Fails here, by name, instead of deep inside Maven.
@@ -196,7 +208,9 @@ jobs:
 
       # A published version is immutable. "not found" is the only answer that lets a release
       # through; any other failure (auth, network, a registry error) stops the run instead of
-      # being read as "absent".
+      # being read as "absent". Only the immutable :X.Y.Z (or :X.Y.Z-beta.N) is checked here.
+      # The floating tags (beta, X.Y and the latest tag) are meant to move to a newer
+      # release, so they are not.
       - name: Refuse to overwrite a published version
         if: env.KIND == 'release'
         run: |
@@ -206,7 +220,11 @@ jobs:
           rc=0
           out=$(docker buildx imagetools inspect "${ref}" 2>&1) || rc=$?
           if [ "${rc}" -eq 0 ]; then
-            echo "::error::${ref} is already published. A beta is never overwritten: raise N in pom.xml (for example -beta.2), merge, and tag that."
+            case "${VERSION}" in
+              *-*) next="raise N in pom.xml on main (for example -beta.2), merge, and tag that" ;;
+              *) next="fix forward with the next patch: raise X.Y.Z in pom.xml on release/${VERSION%.*}, merge, and tag that" ;;
+            esac
+            echo "::error::${ref} is already published. A published version is never overwritten: ${next}."
             exit 1
           fi
           if printf '%s\n' "${out}" | grep -Ei 'not found|manifest unknown|name unknown' >/dev/null; then
@@ -220,31 +238,52 @@ jobs:
           echo "::error::If ${IMAGE} has never been pushed, let a main build push :main first (push to main, or dispatch this workflow on main), then dispatch this workflow on ${GITHUB_REF_NAME} again."
           exit 1
 
+      # Builds now and pushes nothing, so the step that pushes finds every layer
+      # in the builder's cache and takes seconds. The tag check below would
+      # otherwise be as old as the whole build by the time the tags are written.
+      # Same inputs as the push below, so the push is a cache hit.
+      - name: Build the image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          pull: true
+          build-args: |
+            UPSTREAM_PACKAGES_ACTOR=${{ secrets.PACKAGES_READ_ACTOR || github.actor }}
+          # BuildKit secret, never an ARG/ENV, never persisted in a layer.
+          secrets: |
+            packages_read_token=${{ secrets.PACKAGES_READ_TOKEN }}
+
       - name: Compute image tags and labels
         id: meta
         run: |
           set -euo pipefail
-          case "${KIND}" in
-            release)
-              tags="${IMAGE}:${VERSION}"
-              case "${VERSION}" in
-                *-*) tags="${tags}"$'\n'"${IMAGE}:beta" ;;
-                *)   tags="${tags}"$'\n'"${IMAGE}:latest" ;;
-              esac
-              image_version="${VERSION}"
-              ;;
-            main)
-              tags="${IMAGE}:main"
-              image_version="main"
-              ;;
-            *)
-              echo "::error::unknown kind '${KIND}' from the version job."
-              exit 1
-              ;;
-          esac
-          tags="${tags}"$'\n'"${IMAGE}:sha-${SHA12}"
+          # scripts/release-channel.sh decides the tag list here, right before
+          # the push, not in the version job: beta -> :X.Y.Z-beta.N + :beta;
+          # stable -> :X.Y.Z plus :X.Y and the latest tag when nothing newer is
+          # published on its line / on any line; every run adds :sha-<12>.
+          out="$(IMAGE_NAME="${IMAGE}" VERSION_FILE=pom.xml bash scripts/release-channel.sh)"
+          echo "${out}"
+          tags="$(printf '%s\n' "${out}" | sed -n '/^image_tags<<EOF_IMAGE_TAGS$/,/^EOF_IMAGE_TAGS$/p' | sed '1d;$d')"
+          move_latest="$(printf '%s\n' "${out}" | sed -n 's/^move_latest=//p')"
+          if [ -z "${tags}" ]; then
+            echo "::error::scripts/release-channel.sh computed no image tags"
+            exit 1
+          fi
+          while IFS= read -r t; do
+            case "${t}" in
+              "${IMAGE}":?*) ;;
+              *) echo "::error::unexpected image tag '${t}'"; exit 1 ;;
+            esac
+          done <<< "${tags}"
+          if [ "${KIND}" = release ]; then
+            image_version="${VERSION}"
+          else
+            image_version="${GITHUB_REF_NAME}"
+          fi
           labels="org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"$'\n'"org.opencontainers.image.version=${image_version}"$'\n'"org.opencontainers.image.revision=$(git rev-parse HEAD)"
           {
+            echo "move_latest=${move_latest}"
             echo "tags<<EOF_TAGS"
             printf '%s\n' "${tags}"
             echo "EOF_TAGS"
@@ -281,6 +320,8 @@ jobs:
         env:
           METADATA: ${{ steps.build.outputs.metadata }}
           DIGEST: ${{ steps.build.outputs.digest }}
+          EXPECTED_TAGS: ${{ steps.meta.outputs.tags }}
+          MOVE_LATEST: ${{ steps.meta.outputs.move_latest }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -299,8 +340,14 @@ jobs:
               repos.add(f"{head}/{last}")
           if len(repos) != 1:
               sys.exit(f"::error::expected one pushed repository, got {sorted(repos)}")
-          if "latest" in tags:
-              sys.exit("::error::a :latest tag was pushed; beta images must never be tagged latest")
+          expected = sorted(t.rpartition(":")[2] for t in os.environ.get("EXPECTED_TAGS", "").split() if t)
+          if sorted(tags) != expected:
+              sys.exit(f"::error::pushed tags {sorted(tags)} are not the computed tags {expected}")
+          # :latest only for a stable version that owns it (MOVE_LATEST from the
+          # check right before the push). The "-" fallback makes a missing or EMPTY VERSION fail
+          # closed (a job output that was never set arrives as "", not unset).
+          if "latest" in tags and ("-" in (os.environ.get("VERSION") or "-") or os.environ.get("MOVE_LATEST") != "true"):
+              sys.exit("::error::a :latest tag was pushed; beta images and older-line patches must never be tagged latest")
           repo = repos.pop()
           if repo != repo.lower() or not repo.startswith("ghcr.io/hugmesh/"):
               sys.exit(f"::error::unexpected image repository {repo!r}")
@@ -346,6 +393,33 @@ jobs:
           sbom-path: ${{ runner.temp }}/sbom.spdx.json
           push-to-registry: true
 
+      # cosign and the attestations bind to the digest, so they cover every tag
+      # that resolves to it. Prove each pushed tag does (a floating tag moved
+      # by a concurrent run would not).
+      - name: Check every pushed tag resolves to the signed digest
+        if: steps.signref.outcome == 'success'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.signref.outputs.digest }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r ref; do
+            [ -n "$ref" ] || continue
+            # A digest is the sha256 of the manifest's exact bytes, which --raw
+            # prints. Do not use --format '{{.Manifest.Digest}}': buildx answers
+            # any format that starts with {{.Manifest with its full listing.
+            if ! raw_sha="$(docker buildx imagetools inspect "$ref" --raw | sha256sum)"; then
+              echo "::error::could not read $ref from the registry"
+              exit 1
+            fi
+            got="sha256:${raw_sha%% *}"
+            if [ "$got" != "$DIGEST" ]; then
+              echo "::error::$ref resolves to $got, not the signed digest $DIGEST"
+              exit 1
+            fi
+            echo "$ref -> $DIGEST (signed)"
+          done <<< "$TAGS"
+
       - name: Write the verify commands to the job summary
         if: steps.signref.outcome == 'success'
         env:
@@ -356,7 +430,7 @@ jobs:
             echo "### Signed image"
             echo '```'
             echo "$REPO_IMAGE@$DIGEST"
-            echo "cosign verify $REPO_IMAGE@$DIGEST --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/(heads/main|tags/v.*)\$'"
+            echo "cosign verify $REPO_IMAGE@$DIGEST --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/(heads/main|heads/release/[0-9]+[.][0-9]+|tags/v.*)\$'"
             echo "gh attestation verify oci://$REPO_IMAGE@$DIGEST --repo $GITHUB_REPOSITORY"
             echo "gh attestation verify oci://$REPO_IMAGE@$DIGEST --repo $GITHUB_REPOSITORY --predicate-type https://spdx.dev/Document/v2.3"
             echo '```'
@@ -373,7 +447,18 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Create the release (prerelease, not latest, for a beta)
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # beta -> prerelease, never Latest. stable -> a full release, marked
+      # Latest only when nothing newer is published on any line (gh would
+      # otherwise pick Latest by date and mislabel an older-line patch). That is
+      # decided here, right before the release is created: a newer stable may
+      # have published since the image job, or days ago if this is a re-run.
+      - name: Create the GitHub release
         run: |
           set -euo pipefail
           if gh release view "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
@@ -383,6 +468,16 @@ jobs:
           flags=(--verify-tag --title "${GITHUB_REF_NAME}" --notes "Container image: ${IMAGE}:${VERSION}")
           case "${VERSION}" in
             *-*) flags+=(--prerelease --latest=false) ;;
+            *)
+              out="$(IMAGE_NAME="${IMAGE}" VERSION_FILE=pom.xml bash scripts/release-channel.sh)"
+              echo "${out}"
+              move_latest="$(printf '%s\n' "${out}" | sed -n 's/^move_latest=//p')"
+              if [ "${move_latest}" = true ]; then
+                flags+=(--latest)
+              else
+                flags+=(--latest=false)
+              fi
+              ;;
           esac
           gh release create "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}" "${flags[@]}"
 
