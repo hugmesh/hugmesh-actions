@@ -8,7 +8,9 @@
 #                      for the `game-master` role.
 #   casdoor-games    — hugmesh.games Casdoor. The games realm: its own
 #                      `admin` role belongs to it. The sync writes only
-#                      `mesh-games-admin`, a role it owns outright.
+#                      `mesh-games-admin`, a role it owns outright, and only
+#                      for RECIPROCALLY linked pairs (games meshSub and
+#                      systems gamesSub point at each other).
 #   hugmesh-actions — Spring service running this repo's code.
 #                      GameMasterAdminSyncAction runs on the interval
 #                      compose.yaml sets (2 s by default for this stack,
@@ -19,15 +21,16 @@
 Feature: GameMasterAdminSyncAction — cross-stack role propagation
   As the platform admin chain
   I expect a `game-master` role grant on hugmesh.net Casdoor
-  to reach the games account LINKED to that person, within one sync tick,
+  to reach the games account RECIPROCALLY LINKED to that person, within one sync tick,
   without touching the games realm's own admins
-  So a mesh grant never hands games authority to a same-named stranger.
+  So a mesh grant never hands games authority to a same-named stranger,
+  and no games player can claim it by pointing at a mesh admin.
 
   Scenario: granting game-master on systems adds the linked games account
     Given the actions service is healthy
     And user "alice" exists on hugmesh Casdoor
     And user "alice-plays" exists on threewizards Casdoor
-    And threewizards user "alice-plays" is linked to hugmesh user "alice"
+    And threewizards user "alice-plays" and hugmesh user "alice" are linked to each other
     And user "alice-plays" is removed from mesh-games-admin on threewizards Casdoor
     When user "alice" is granted game-master on hugmesh Casdoor
     And the sync action ticks once
@@ -39,7 +42,7 @@ Feature: GameMasterAdminSyncAction — cross-stack role propagation
     Given the actions service is healthy
     And user "bob" exists on hugmesh Casdoor
     And user "bob" exists on threewizards Casdoor
-    And threewizards user "bob" is linked to hugmesh user "bob"
+    And threewizards user "bob" and hugmesh user "bob" are linked to each other
     And user "bob" has the game-master role on hugmesh Casdoor
     And the sync action ticks once
     And user "bob" has the mesh-games-admin role on threewizards Casdoor
@@ -57,13 +60,49 @@ Feature: GameMasterAdminSyncAction — cross-stack role propagation
     Then user "carol" has NO mesh-games-admin role on threewizards Casdoor
     And the actions.gm_sync.unlinked counter has incremented
 
+  Scenario: a games-side pointer alone gets nothing (a player can write their own properties)
+    Given the actions service is healthy
+    And user "frank" exists on hugmesh Casdoor
+    And user "eve" exists on threewizards Casdoor
+    And threewizards user "eve" points meshSub at hugmesh user "frank" without a pointer back
+    When user "frank" is granted game-master on hugmesh Casdoor
+    And the sync action ticks once
+    Then user "eve" has NO mesh-games-admin role on threewizards Casdoor
+    And the actions.gm_sync.unlinked counter has incremented
+
+  Scenario: a mesh-side pointer alone gets nothing
+    Given the actions service is healthy
+    And user "grace" exists on hugmesh Casdoor
+    And user "grace-plays" exists on threewizards Casdoor
+    And hugmesh user "grace" points gamesSub at threewizards user "grace-plays" without a pointer back
+    When user "grace" is granted game-master on hugmesh Casdoor
+    And the sync action ticks once
+    Then user "grace-plays" has NO mesh-games-admin role on threewizards Casdoor
+    And the actions.gm_sync.unlinked counter has incremented
+
+  Scenario: a second claimant does not unseat a reciprocal pair
+    Given the actions service is healthy
+    And user "henry" exists on hugmesh Casdoor
+    And user "henry-plays" exists on threewizards Casdoor
+    And threewizards user "henry-plays" and hugmesh user "henry" are linked to each other
+    And user "henry" has the game-master role on hugmesh Casdoor
+    And the sync action ticks once
+    And user "henry-plays" has the mesh-games-admin role on threewizards Casdoor
+    And user "imposter" exists on threewizards Casdoor
+    And threewizards user "imposter" points meshSub at hugmesh user "henry" without a pointer back
+    When the gm_sync counters are read
+    And the sync action ticks once
+    Then user "henry-plays" has the mesh-games-admin role on threewizards Casdoor
+    And user "imposter" has NO mesh-games-admin role on threewizards Casdoor
+    And no Casdoor write was issued on either side
+
   Scenario: a games-native admin survives every tick
     Given the actions service is healthy
     And user "native-admin" exists on threewizards Casdoor
     And user "native-admin" has the games-native admin role on threewizards Casdoor
     When user "dave" exists on hugmesh Casdoor
     And user "dave-plays" exists on threewizards Casdoor
-    And threewizards user "dave-plays" is linked to hugmesh user "dave"
+    And threewizards user "dave-plays" and hugmesh user "dave" are linked to each other
     And user "dave" is granted game-master on hugmesh Casdoor
     And the sync action ticks once
     Then user "dave-plays" has the mesh-games-admin role on threewizards Casdoor

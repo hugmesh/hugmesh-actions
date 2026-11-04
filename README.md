@@ -19,10 +19,11 @@ losing it on a restart only delays an auto-revoke.
 | **Trusts** | The **hugmesh.net Casdoor** as its canonical JWT issuer (this surface mutates state in *both* the systems and games Casdoors, so only the systems side is trusted to authorize the call). |
 
 The reconcilers keep two platform invariants true after the fact, not only at
-sign-in. A `game-master` on hugmesh.net who has a LINKED games account becomes a
-`mesh-games-admin` in the **optional,
+sign-in. A `game-master` on hugmesh.net who has a RECIPROCALLY linked games
+account becomes a `mesh-games-admin` in the **optional,
 opt-in games realm** (the games service is OFF by default and exists only
-when the build is generated with `--enable-games`). A platform admin who loses
+when the build is generated with `--enable-games`; the sync itself is also
+OFF by default, `GM_SYNC_ENABLED=false`). A platform admin who loses
 their GitHub org-admin reach loses hugmesh.net admin (when the GitHub grant
 feature is on).
 
@@ -86,30 +87,52 @@ automatic bridge: it mirrors a systems role (`GM_SYNC_SYSTEMS_ROLE`, default
 `mesh-games-admin`). It runs every `app.actions.game-master-sync.interval-ms`
 (default **60 s**; first tick after `initial-delay-ms`, default 5 s).
 
+**It is OFF by default.** `app.actions.game-master-sync.enabled`
+(`GM_SYNC_ENABLED`) defaults to `false`: startup logs one INFO line and every
+tick returns before reading either Casdoor. The operator turns it on per
+deployment. The repo's own `compose.yaml` sets it to `true` because that stack
+exists to exercise the sync.
+
 **It never writes the games realm's own `admin` role.** The sync replaces
 the whole member list of the role it writes, so it may only write a role
 nobody else grants. The configured games role must start with `mesh-`;
 anything else (`admin`, `player`, `mod`, `publisher`, `uploader`, `play-*`)
 is refused: startup logs an ERROR, and every tick logs a WARN, counts
-`actions.gm_sync.errors`, and reads and writes nothing. The games BFF must admit `mesh-games-admin` from
-the games-realm issuer as a games admin.
+`actions.gm_sync.errors`, and reads and writes nothing. What the games BFF
+makes of `mesh-games-admin` is its own decision: a mesh games admin
+administers games with their MESH token, and games-realm admin comes only
+from the games realm's own `admin` role, so today nothing honours the synced
+role on a games-realm token. The sync populates it so that a future,
+unforgeable use of it has correct members.
 
-**Users are mapped through an explicit link, never by username.** The games
+**Users are mapped through a RECIPROCAL link, never by username.** The games
 realm has its own self-signup, so `threewizards/alice` may be a different
-person from `hugmesh/alice`. Per systems member, the tick:
+person from `hugmesh/alice`. On `casbin/casdoor:3.80.0` a user can write
+their OWN `properties` (`update-user?columns=properties` on the user's own
+session succeeds even with the `Properties` account item set to admin-only;
+measured 2026-11-04; a write without `columns=` is dropped, which is what an
+earlier measurement saw), so a single pointer is only a claim by whoever
+owns that account. A pair (mesh user M, games user G) counts only when both
+claim each other: `M.properties.gamesSub == G.id` AND
+`G.properties.meshSub == M.id` (`GM_SYNC_REVERSE_LINK_PROPERTY` /
+`GM_SYNC_LINK_PROPERTY`). Each owner can only write their own side, so a
+games player pointing at a mesh admin's `sub` gains nothing, and a second
+games account pointing at an already-linked admin's `sub` no longer makes
+the match ambiguous (which used to revoke the real admin). Per systems
+member, the tick:
 
-1. resolves the systems user to its id (the JWT `sub`) with `get-user`;
+1. resolves the systems user (id = the JWT `sub`) with `get-user`;
    unknown, forbidden or deleted systems users are skipped;
-2. finds the games user whose `properties.meshSub`
-   (`GM_SYNC_LINK_PROPERTY`) equals that id exactly. Casdoor's default
-   account items make `Properties` admin-modifiable only, so a player
-   cannot forge the link (measured on `casbin/casdoor:3.80.0`: a user's own
-   `update-user` silently drops a properties change). Only an admin-side
-   link flow may write it;
-3. with exactly one usable linked account, adds `threewizards/<that name>`;
-   otherwise skips the member and counts `actions.gm_sync.unlinked`. A bare
-   name is never written, so there is no dangling member for a later
-   sign-up to inherit.
+2. follows `M.properties.gamesSub` to the games user with that id
+   (`get-user?userId=`, a point read; the client ignores a user outside the
+   games organization, because Casdoor's id lookup is server-wide). A
+   property SEARCH is never used: `get-users?field=properties` is a `LIKE`
+   over a page of 50, and anyone who can create accounts could push the real
+   one off the page;
+3. with a usable games account whose `properties.meshSub` equals `M.id`,
+   adds `threewizards/<that name>`; otherwise skips the member and counts
+   `actions.gm_sync.unlinked`. A bare name is never written, so there is no
+   dangling member for a later sign-up to inherit.
 
 A read error on either side fails the tick before any write, so a transient
 failure cannot shrink the desired set and revoke someone. The write is a
@@ -123,11 +146,13 @@ no-op, so the response alone proves nothing. An unconfirmed write fails the
 tick. A tick with no change writes nothing. The per-Casdoor side effect is
 wrapped in a Resilience4j `@CircuitBreaker(name="casdoor")`.
 
-| systems role (linked games account) | games `mesh-games-admin` before | after |
+| systems role (reciprocally linked games account) | games `mesh-games-admin` before | after |
 |---|---|---|
-| `{alice→tw/alice, bob→tw/bobby}` | `{tw/alice}` | `{tw/alice, tw/bobby}` |
-| `{alice→tw/alice}` | `{tw/alice, tw/dropped}` | `{tw/alice}` |
-| `{alice→tw/alice, carol (no link)}` | `{tw/alice}` | `{tw/alice}` (no-op; `unlinked`+1) |
+| `{alice⇄tw/alice, bob⇄tw/bobby}` | `{tw/alice}` | `{tw/alice, tw/bobby}` |
+| `{alice⇄tw/alice}` | `{tw/alice, tw/dropped}` | `{tw/alice}` |
+| `{alice⇄tw/alice, carol (no link)}` | `{tw/alice}` | `{tw/alice}` (no-op; `unlinked`+1) |
+| `{victim}`, tw/attacker claims victim's `sub`, victim points nowhere | `{}` | `{}` (`unlinked`+1) |
+| `{alice⇄tw/alice}`, tw/forger also claims alice's `sub` | `{tw/alice}` | `{tw/alice}` (no-op) |
 | any | games `admin` | never read, never written |
 
 **Credentials.** Casdoor 3.80.0 grants any application's client
@@ -601,9 +626,10 @@ defaults in `UserNotificationClientConfig`/`RoleChangeNotifier`/
 | Systems Casdoor | `app.casdoor.platform.*` (`CASDOOR_PLATFORM_URL`, `…CLIENT_ID`, `…CLIENT_SECRET`, `…ORG`) | `…hugmesh` (literal Casdoor org identifier, `app.casdoor.platform.organization`; matches the main stack's CASDOOR_PLATFORM_ORG and seed-e2e.sh's CASDOOR_ORG) |
 | Games Casdoor | `app.casdoor.games.*` (`CASDOOR_GAMES_URL`, …, `CASDOOR_GAMES_ORG`) | `…threewizards` |
 | JWT issuer | `spring.security.oauth2.resourceserver.jwt.issuer-uri` (`CASDOOR_PLATFORM_URL`) | systems Casdoor |
+| GM sync on/off | `app.actions.game-master-sync.enabled` (`GM_SYNC_ENABLED`) | `false` (off → no tick reads or writes either Casdoor) |
 | GM sync interval | `app.actions.game-master-sync.interval-ms` (`GM_SYNC_INTERVAL_MS`) | `60000` |
 | GM sync roles | `app.actions.game-master-sync.systems-role` / `…games-role` (`GM_SYNC_SYSTEMS_ROLE` / `GM_SYNC_GAMES_ROLE`) | `game-master` / `mesh-games-admin` (the cluster deployment sets `ROLE_GAMES_ADMIN` as the systems role; the games role must start with `mesh-`) |
-| GM sync link | `app.actions.game-master-sync.link-property` (`GM_SYNC_LINK_PROPERTY`) | `meshSub` (games-user property holding the linked systems `sub`) |
+| GM sync link | `app.actions.game-master-sync.link-property` / `…reverse-link-property` (`GM_SYNC_LINK_PROPERTY` / `GM_SYNC_REVERSE_LINK_PROPERTY`) | `meshSub` (games-user property naming the systems `sub`) / `gamesSub` (systems-user property naming the games user id); both must agree |
 | GitHub-org-admin auto-grant | `app.actions.gh-org-admin.enabled` (`GH_ORG_ADMIN_ENABLED`) | `false` (off → evaluate returns `404`, reconciler no-op) |
 | GitHub orgs | `app.actions.gh-org-admin.orgs` (`GH_ORG_ADMIN_ORGS`) | `hugmesh,HugMesh` (both casings — the repo-admin reach path matches the repo owner's login case-sensitively) |
 | Granted systems role | `app.actions.gh-org-admin.systems-admin-role` (`GH_ORG_ADMIN_ROLE`) | `admin` |
@@ -760,17 +786,21 @@ Run `native:compile` on a GraalVM JDK to produce the binary.
   Setting `GH_ORG_ADMIN_ENABLED=true` alone would not make it assert `200`,
   since it never sends a body that could pass the grant.
 - **`bring-up-stack.sh` has not run end to end against the real stack.** Its
-  seeding functions and all 11 e2e scenarios ran on 2026-10-30 against two real
+  seeding functions and the 11 e2e scenarios of that date ran on 2026-10-30 against two real
   `casbin/casdoor:3.80.0` containers, with the jar on a stock JRE image. The
   wrapper builds the service image, so that step did not run. See
   `e2e/README.md`'s "Token wiring".
-- **Nothing writes the `meshSub` link yet.** Until the games-side link flow or
-  an admin provisioning action exists, every systems member is skipped and
-  counted in `actions.gm_sync.unlinked`, so `mesh-games-admin` stays empty.
-- **The sync is inert until `hugmesh-generator` catches up.** It must seed
-  `mesh-games-admin` in casdoor-games and set `GM_SYNC_GAMES_ROLE` to it.
-  Until then the cluster's `GM_SYNC_GAMES_ROLE=admin` is refused on every tick
-  (ERROR at startup, then a WARN and `actions.gm_sync.errors` each tick). That is the intended fail-closed state.
+- **Nothing writes the link yet.** Until a link flow lets each user write
+  their own side (`meshSub` on the games account, `gamesSub` on the mesh
+  account), every systems member is skipped and counted in
+  `actions.gm_sync.unlinked`, so `mesh-games-admin` stays empty.
+- **Nothing honours `mesh-games-admin` yet, and the sync is OFF by default.**
+  Games-realm admin comes only from the realm's own `admin` role; a mesh
+  games admin uses their mesh token. The sync ships `GM_SYNC_ENABLED=false`
+  and stays off in every deployment until the operator turns it on. If it is
+  turned on with the cluster's old `GM_SYNC_GAMES_ROLE=admin`, that value is
+  refused on every tick (ERROR at startup, then a WARN and
+  `actions.gm_sync.errors` each tick). Both are intended fail-closed states.
 
 ## License
 

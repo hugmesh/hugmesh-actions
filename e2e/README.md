@@ -63,7 +63,7 @@ bash e2e/scripts/bring-up-stack.sh stop
 
 ## What the suite proves
 
-### `cross-stack-admin-sync.feature` (5 scenarios)
+### `cross-stack-admin-sync.feature` (8 scenarios)
 
 Each scenario runs the full sync loop. It seeds state in both Casdoors,
 waits for a sync tick in `hugmesh-actions`, then asserts the Casdoor
@@ -92,6 +92,9 @@ sequenceDiagram
 | grant flows through | Systems user with a LINKED games account | Grant `game-master` on systems | Next sync tick adds that account to `mesh-games-admin`; the role stays enabled and intact; `gm_sync.added` increments |
 | revoke flows through | Linked user holds `game-master`, synced | Remove `game-master` on systems | Next tick removes them from `mesh-games-admin`; `gm_sync.removed` increments |
 | same name, no link | `carol` on both Casdoors, no link | Grant `game-master` on systems | `threewizards/carol` gets nothing; `gm_sync.unlinked` increments |
+| games-side pointer alone | `threewizards/eve` points `meshSub` at `hugmesh/frank`'s sub; frank points nowhere | Grant `game-master` to frank | `eve` gets nothing; `gm_sync.unlinked` increments (a player can write their own properties on Casdoor 3.80.0) |
+| mesh-side pointer alone | `hugmesh/grace` points `gamesSub` at `threewizards/grace-plays`; grace-plays points nowhere | Grant `game-master` to grace | `grace-plays` gets nothing; `gm_sync.unlinked` increments |
+| second claimant | `henry` ⇄ `henry-plays` reciprocal and synced; `imposter` also points at henry's sub | Sync tick | `henry-plays` keeps the role; `imposter` gets nothing; no write |
 | native admin survives | A member of the games realm's own `admin` role | Any sync write | They are still in `admin` |
 | in-sync is no-op | Both sides have empty role sets | Sync tick | No Casdoor write occurs; `gm_sync.unchanged` counter increments |
 
@@ -116,14 +119,20 @@ what the scenarios assert; `—` means no scenario checks that cell.
 > `bring-up-stack.sh` sets it, so that caller would get `404`. A `200` grant needs
 > the switch on and a valid body. See the top-level README's Known Gaps section.
 
-> **What is actually asserted today.** All 11 scenarios (`per-role-access.feature`
-> 6, `cross-stack-admin-sync.feature` 5) passed on 2026-10-30 against two real
-> `casbin/casdoor:3.80.0` containers, with the service jar run on a stock JRE
-> image and the seed functions called directly. On the pre-fix jar the sync
-> feature went red (4 of 5), and its tick left the games realm's `admin` role
-> empty, with `isEnabled=false` and a blank `displayName`. `bring-up-stack.sh`
-> itself builds the image, so that wrapper did not run; its seeding calls did.
-> The offline shim test (`e2e/scripts/test-casdoor-seed.sh`) still runs.
+> **What is actually asserted today.** The 11 scenarios that existed on
+> 2026-10-30 (`per-role-access.feature` 6, `cross-stack-admin-sync.feature` 5
+> at the time) passed then against two real `casbin/casdoor:3.80.0`
+> containers, with the service jar run on a stock JRE image and the seed
+> functions called directly. On the pre-fix jar the sync feature went red (4
+> of 5), and its tick left the games realm's `admin` role empty, with
+> `isEnabled=false` and a blank `displayName`. The three reciprocal-link
+> scenarios added on 2026-11-04 (games-side pointer alone, mesh-side pointer
+> alone, second claimant) have NOT run through Playwright; the same sequences
+> ran as curl scripts against two real 3.80.0 containers with the jar on a
+> stock JRE (see the pull request), and as unit tests over `FakeCasdoor`.
+> `bring-up-stack.sh` itself builds the image, so that wrapper has not run;
+> its seeding calls did. The offline shim test
+> (`e2e/scripts/test-casdoor-seed.sh`) still runs.
 
 ## Reports
 
@@ -273,7 +282,8 @@ It looks for tokens in this order:
 > what `cross-stack-admin-sync.feature` needs that is not per-scenario:
 > `game-master` on systems; on games the org, the sync's app,
 > `mesh-games-admin` and `admin`. The feature's own steps create the users
-> and write the `meshSub` link.
+> and write BOTH sides of the link (`meshSub` on the games account, `gamesSub`
+> on the systems account) through the application credentials.
 >
 > **Fail-closed.** If ANY step fails — unresolved password,
 > unreachable Casdoor, a create/verify call that comes back wrong, a mint with no

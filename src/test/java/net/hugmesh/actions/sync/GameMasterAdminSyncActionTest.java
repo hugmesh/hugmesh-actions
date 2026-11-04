@@ -28,11 +28,15 @@ import static org.mockito.Mockito.when;
  * <ul>
  *   <li>G12: only the owned role is ever written; the realm's own admin role and
  *       every native admin in it stay untouched; an unowned role name is refused.</li>
- *   <li>G13: users map through the explicit link, never by username; a same-name
- *       unlinked games user is not added; no dangling name is ever written.</li>
+ *   <li>G13: users map through the RECIPROCAL link, never by username; a
+ *       one-sided pointer in either direction is ignored (a games player can
+ *       write their own properties on 3.80.0, so a games-side pointer alone is
+ *       an escalation attempt, and a second claimant must not unseat the real
+ *       pair); no dangling name is ever written.</li>
  *   <li>G14: the write preserves every other role column and is confirmed by
  *       read-back.</li>
  *   <li>A read error fails the tick before any write.</li>
+ *   <li>Disabled (the default): nothing is read or written.</li>
  * </ul>
  */
 class GameMasterAdminSyncActionTest {
@@ -60,14 +64,19 @@ class GameMasterAdminSyncActionTest {
     }
 
     private GameMasterAdminSyncAction action(String gamesRole) {
-        return new GameMasterAdminSyncAction(systems.client(), games.client(),
-                SYS_ROLE, gamesRole, "meshSub", notifier, registry);
+        return action(gamesRole, true);
+    }
+
+    private GameMasterAdminSyncAction action(String gamesRole, boolean enabled) {
+        return new GameMasterAdminSyncAction(systems.client(), games.client(), enabled,
+                SYS_ROLE, gamesRole, "meshSub", "gamesSub", notifier, registry);
     }
 
     private double count(String name) { return registry.counter(name).count(); }
 
+    /** A reciprocal pair: systems alice -> games alice, games alice -> systems alice. */
     private void linkedAlice() {
-        systems.user("alice", "sub-alice", null);
+        systems.user("alice", "sub-alice", Map.of("gamesSub", "games-id-alice"));
         games.user("alice", "games-id-alice", Map.of("meshSub", "sub-alice"));
     }
 
@@ -86,13 +95,14 @@ class GameMasterAdminSyncActionTest {
 
     @Test
     void linkedMember_isAdded_underItsGamesName_andNotifiedOnItsMeshSubject() {
-        systems.role(SYS_ROLE, true, SYS + "/bob").user("bob", "sub-bob", null);
+        systems.role(SYS_ROLE, true, SYS + "/bob").user("bob", "sub-bob", Map.of("gamesSub", "games-id-bob"));
         games.user("bobby-the-player", "games-id-bob", Map.of("meshSub", "sub-bob"));
 
         StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
 
         assertThat(games.members(OWNED)).containsExactly(TW + "/bobby-the-player");
         assertThat(count("actions.gm_sync.added")).isEqualTo(1.0);
+        assertThat(count("actions.gm_sync.unlinked")).isZero();
         verify(notifier, times(1)).roleChangedForSubject(
                 eq("sub-bob"), eq(TW + "/bobby-the-player"), anyString(), eq(true),
                 eq(GameMasterAdminSyncAction.SOURCE_TABLE));
@@ -111,6 +121,37 @@ class GameMasterAdminSyncActionTest {
         verify(notifier, times(1)).roleChangedForSubject(
                 eq("sub-dropped"), eq(TW + "/dropped"), anyString(), eq(false),
                 eq(GameMasterAdminSyncAction.SOURCE_TABLE));
+    }
+
+    // ---- disabled by default ----
+
+    @Test
+    void disabled_readsAndWritesNothing_andCountsNoError() {
+        systems.role(SYS_ROLE, true, SYS + "/alice");
+        linkedAlice();
+        games.role(OWNED, true, TW + "/stale-member");
+        GameMasterAdminSyncAction a = action(OWNED, false);
+
+        a.start();
+        a.runTick();
+        StepVerifier.create(a.runOnce()).verifyComplete();
+
+        assertThat(a.enabled()).isFalse();
+        assertThat(systems.requests).isEmpty();
+        assertThat(games.requests).isEmpty();
+        assertThat(games.members(OWNED)).containsExactly(TW + "/stale-member");
+        assertThat(count("actions.gm_sync.errors")).isZero();
+        assertThat(count("actions.gm_sync.unchanged")).isZero();
+        assertThat(a.lastSuccessAt()).isEqualTo(java.time.Instant.EPOCH);
+    }
+
+    @Test
+    void disabled_evenAnUnownedRoleIsNotAnError() {
+        GameMasterAdminSyncAction a = action("admin", false);
+        a.start();
+        a.runTick();
+        StepVerifier.create(a.runOnce()).verifyComplete();
+        assertThat(count("actions.gm_sync.errors")).isZero();
     }
 
     // ---- G12 ----
@@ -152,7 +193,7 @@ class GameMasterAdminSyncActionTest {
         assertThat(GameMasterAdminSyncAction.isOwnedRole(null)).isFalse();
     }
 
-    // ---- G13 ----
+    // ---- G13: reciprocal link ----
 
     @Test
     void sameNameUnlinkedGamesUser_isNotAdded() {
@@ -168,24 +209,129 @@ class GameMasterAdminSyncActionTest {
     }
 
     @Test
-    void sameNameUserLinkedToSomeoneElse_isNotAdded() {
-        systems.role(SYS_ROLE, true, SYS + "/alice").user("alice", "sub-alice", null);
-        games.user("alice", "games-id-other", Map.of("meshSub", "sub-carol"));
-
-        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
-
-        assertThat(games.members(OWNED)).isEmpty();
-    }
-
-    @Test
-    void missingGamesAccount_writesNoDanglingName() {
-        systems.role(SYS_ROLE, true, SYS + "/ghost").user("ghost", "sub-ghost", null);
+    void gamesSidePointerAlone_isIgnored_theEscalationShape() {
+        // B-esc: a games player writes meshSub=<mesh admin's sub> on their OWN
+        // account (allowed on 3.80.0). The mesh admin never pointed back.
+        systems.role(SYS_ROLE, true, SYS + "/victim").user("victim", "sub-victim", null);
+        games.user("attacker", "games-id-attacker", Map.of("meshSub", "sub-victim"));
 
         StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
 
         assertThat(games.roleWrites).isEmpty();
         assertThat(games.members(OWNED)).isEmpty();
         assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+        verify(notifier, never()).roleChangedForSubject(any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void gamesSidePointerAlone_isIgnored_evenWhenTheMeshSidePointsSomewhereElse() {
+        // The mesh admin is linked to their real games account; the attacker
+        // points at the admin's sub anyway. Only the real pair counts.
+        systems.role(SYS_ROLE, true, SYS + "/victim")
+                .user("victim", "sub-victim", Map.of("gamesSub", "games-id-real"));
+        games.user("real", "games-id-real", Map.of("meshSub", "sub-victim"));
+        games.user("attacker", "games-id-attacker", Map.of("meshSub", "sub-victim"));
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.members(OWNED)).containsExactly(TW + "/real");
+        assertThat(count("actions.gm_sync.unlinked")).isZero();
+    }
+
+    @Test
+    void meshSidePointerAlone_isIgnored() {
+        // The mesh user claims a games account that never claimed them back.
+        systems.role(SYS_ROLE, true, SYS + "/alice")
+                .user("alice", "sub-alice", Map.of("gamesSub", "games-id-alice"));
+        games.user("alice", "games-id-alice", null);
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.roleWrites).isEmpty();
+        assertThat(games.members(OWNED)).isEmpty();
+        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+    }
+
+    @Test
+    void meshSidePointer_atAnAccountLinkedToSomeoneElse_isIgnored() {
+        systems.role(SYS_ROLE, true, SYS + "/alice")
+                .user("alice", "sub-alice", Map.of("gamesSub", "games-id-carols"));
+        games.user("carol", "games-id-carols", Map.of("meshSub", "sub-carol"));
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.members(OWNED)).isEmpty();
+        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+    }
+
+    @Test
+    void secondClaimant_doesNotUnseatTheReciprocalPair_theDosShape() {
+        // Round 1 skipped a subject with two games claimants, so a forged
+        // second pointer revoked the real admin. Now the real pair stays.
+        systems.role(SYS_ROLE, true, SYS + "/alice");
+        linkedAlice();
+        games.role(OWNED, true, TW + "/alice");
+        games.user("forger", "games-id-forger", Map.of("meshSub", "sub-alice"));
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.roleWrites).isEmpty();
+        assertThat(games.members(OWNED)).containsExactly(TW + "/alice");
+        assertThat(count("actions.gm_sync.unchanged")).isEqualTo(1.0);
+        assertThat(count("actions.gm_sync.removed")).isZero();
+        assertThat(count("actions.gm_sync.unlinked")).isZero();
+    }
+
+    @Test
+    void meshSidePointer_atAForbiddenGamesAccount_isIgnored() {
+        systems.role(SYS_ROLE, true, SYS + "/alice")
+                .user("alice", "sub-alice", Map.of("gamesSub", "games-id-alice"));
+        games.user("alice", "games-id-alice", Map.of("meshSub", "sub-alice"), true);
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.members(OWNED)).isEmpty();
+        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+    }
+
+    @Test
+    void meshSidePointer_atAMissingGamesAccount_writesNoDanglingName() {
+        systems.role(SYS_ROLE, true, SYS + "/ghost")
+                .user("ghost", "sub-ghost", Map.of("gamesSub", "games-id-gone"));
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.roleWrites).isEmpty();
+        assertThat(games.members(OWNED)).isEmpty();
+        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+    }
+
+    @Test
+    void meshSidePointer_atAUserInAnotherOrganization_isIgnored() {
+        // Casdoor's get-user?userId= is server-wide; the sync must stay in the games org.
+        systems.role(SYS_ROLE, true, SYS + "/alice")
+                .user("alice", "sub-alice", Map.of("gamesSub", "builtin-admin-id"));
+        games.foreignUser("built-in", "admin", "builtin-admin-id", Map.of("meshSub", "sub-alice"));
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.roleWrites).isEmpty();
+        assertThat(games.members(OWNED)).isEmpty();
+        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+    }
+
+    @Test
+    void forbiddenSystemsAccount_isNotLinked() {
+        systems.role(SYS_ROLE, true, SYS + "/banned", SYS + "/ok")
+                .user("banned", "sub-banned", Map.of("gamesSub", "g1"), true)
+                .user("ok", "sub-ok", Map.of("gamesSub", "g2"));
+        games.user("banned", "g1", Map.of("meshSub", "sub-banned"));
+        games.user("ok", "g2", Map.of("meshSub", "sub-ok"), true);
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.members(OWNED)).isEmpty();
+        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(2.0);
     }
 
     @Test
@@ -202,56 +348,6 @@ class GameMasterAdminSyncActionTest {
     }
 
     @Test
-    void propertySubstringMatch_isNotALink() {
-        systems.role(SYS_ROLE, true, SYS + "/alice").user("alice", "sub", null);
-        // Casdoor's LIKE filter returns these; neither is an exact meshSub match.
-        games.user("mallory", "g1", Map.of("meshSub", "sub-of-someone-else"));
-        games.user("eve", "g2", Map.of("note", "sub"));
-
-        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
-
-        assertThat(games.members(OWNED)).isEmpty();
-    }
-
-    @Test
-    void twoGamesAccountsClaimingOneSubject_linksNeither() {
-        systems.role(SYS_ROLE, true, SYS + "/alice").user("alice", "sub-alice", null);
-        games.user("a1", "g1", Map.of("meshSub", "sub-alice"));
-        games.user("a2", "g2", Map.of("meshSub", "sub-alice"));
-
-        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
-
-        assertThat(games.members(OWNED)).isEmpty();
-        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
-    }
-
-    @Test
-    void linkClaimedByAForbiddenAccountToo_linksNeither() {
-        systems.role(SYS_ROLE, true, SYS + "/alice").user("alice", "sub-alice", null);
-        games.user("a1", "g1", Map.of("meshSub", "sub-alice"));
-        games.user("a2", "g2", Map.of("meshSub", "sub-alice"), true);
-
-        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
-
-        assertThat(games.members(OWNED)).isEmpty();
-        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
-    }
-
-    @Test
-    void forbiddenAccounts_areNotLinked() {
-        systems.role(SYS_ROLE, true, SYS + "/banned", SYS + "/ok")
-                .user("banned", "sub-banned", null, true)
-                .user("ok", "sub-ok", null);
-        games.user("banned", "g1", Map.of("meshSub", "sub-banned"));
-        games.user("ok", "g2", Map.of("meshSub", "sub-ok"), true);
-
-        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
-
-        assertThat(games.members(OWNED)).isEmpty();
-        assertThat(count("actions.gm_sync.unlinked")).isEqualTo(2.0);
-    }
-
-    @Test
     void memberOfAnotherOrg_isSkipped() {
         systems.role(SYS_ROLE, true, "other-org/alice");
         linkedAlice();
@@ -260,6 +356,17 @@ class GameMasterAdminSyncActionTest {
 
         assertThat(games.members(OWNED)).isEmpty();
         assertThat(count("actions.gm_sync.unlinked")).isEqualTo(1.0);
+    }
+
+    @Test
+    void linkIsResolvedByPointRead_neverByPropertySearch() {
+        systems.role(SYS_ROLE, true, SYS + "/alice");
+        linkedAlice();
+
+        StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
+
+        assertThat(games.requests).doesNotContain("/api/get-users");
+        assertThat(games.requests).contains("/api/get-user");
     }
 
     // ---- G14 + failure handling ----
@@ -334,7 +441,7 @@ class GameMasterAdminSyncActionTest {
         systems.role(SYS_ROLE, true, SYS + "/alice");
         linkedAlice();
         games.role(OWNED, true, TW + "/alice");
-        games.failPath = "/api/get-users";
+        games.failPath = "/api/get-user";
 
         StepVerifier.create(action(OWNED).runOnce()).expectError().verify();
 
@@ -382,7 +489,7 @@ class GameMasterAdminSyncActionTest {
     void revokeNotificationLookupFailure_doesNotFailTheTick() {
         systems.role(SYS_ROLE, true);
         games.role(OWNED, true, TW + "/dropped");
-        games.failPath = "/api/get-user";  // also matches get-users; no lookups are needed here
+        games.failPath = "/api/get-user";  // no lookups are needed before the write here
 
         StepVerifier.create(action(OWNED).runOnce()).verifyComplete();
 

@@ -29,7 +29,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * <ul>
  *   <li>{@code get-role} / {@code get-user}: {@code status:"ok", data:null}
- *       for a missing object (not an error).</li>
+ *       for a missing object (not an error). {@code get-user?userId=} looks
+ *       the id up across every organization (measured 2026-11-04).</li>
  *   <li>{@code update-role} REPLACES the stored role with the posted object
  *       (every column written: a partial body loses {@code isEnabled},
  *       {@code displayName}, {@code roles}, {@code domains}), and answers
@@ -89,8 +90,20 @@ public final class FakeCasdoor {
     }
 
     public FakeCasdoor user(String name, String id, Map<String, String> properties, boolean forbidden) {
+        return user(organization, name, id, properties, forbidden);
+    }
+
+    /** A user in ANOTHER organization on the same Casdoor server. Casdoor's
+     *  {@code get-user?userId=} finds it (measured on 3.80.0: the id lookup
+     *  is server-wide), so a client must check {@code owner} itself. */
+    public FakeCasdoor foreignUser(String owner, String name, String id, Map<String, String> properties) {
+        return user(owner, name, id, properties, false);
+    }
+
+    private FakeCasdoor user(String owner, String name, String id, Map<String, String> properties,
+                             boolean forbidden) {
         Map<String, Object> u = new LinkedHashMap<>();
-        u.put("owner", organization);
+        u.put("owner", owner);
         u.put("name", name);
         u.put("id", id);
         u.put("isForbidden", forbidden);
@@ -130,8 +143,17 @@ public final class FakeCasdoor {
         switch (path) {
             case "/api/get-role":
                 return ok(roles.get(nameOf(q.get("id"))));
-            case "/api/get-user":
-                return ok(users.get(nameOf(q.get("id"))));
+            case "/api/get-user": {
+                if (q.get("userId") != null) {
+                    // Server-wide id lookup, as measured: no owner filter.
+                    for (Map<String, Object> u : users.values()) {
+                        if (q.get("userId").equals(u.get("id"))) return ok(u);
+                    }
+                    return ok(null);
+                }
+                Map<String, Object> u = users.get(nameOf(q.get("id")));
+                return ok(u != null && organization.equals(u.get("owner")) ? u : null);
+            }
             case "/api/get-users": {
                 String value = q.get("value");
                 List<Object> out = new ArrayList<>();

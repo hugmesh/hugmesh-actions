@@ -20,10 +20,30 @@ Given('user {string} exists on threewizards Casdoor', async ({}, username: strin
   await casdoorClients().games.ensureUser(username);
 });
 
-Given('threewizards user {string} is linked to hugmesh user {string}',
+// The link is RECIPROCAL: the sync counts a pair only when the games
+// account's meshSub names the systems user's id AND the systems account's
+// gamesSub names the games user's id. One pointer alone is just a claim by
+// whoever owns that account (a user can write their own properties on
+// Casdoor 3.80.0).
+Given('threewizards user {string} and hugmesh user {string} are linked to each other',
       async ({}, gamesUser: string, systemsUser: string) => {
   const { systems, games } = casdoorClients();
   await games.setUserProperty(gamesUser, 'meshSub', await systems.getUserId(systemsUser));
+  await systems.setUserProperty(systemsUser, 'gamesSub', await games.getUserId(gamesUser));
+});
+
+Given('threewizards user {string} points meshSub at hugmesh user {string} without a pointer back',
+      async ({}, gamesUser: string, systemsUser: string) => {
+  const { systems, games } = casdoorClients();
+  await games.setUserProperty(gamesUser, 'meshSub', await systems.getUserId(systemsUser));
+  await systems.setUserProperty(systemsUser, 'gamesSub', '');
+});
+
+Given('hugmesh user {string} points gamesSub at threewizards user {string} without a pointer back',
+      async ({}, systemsUser: string, gamesUser: string) => {
+  const { systems, games } = casdoorClients();
+  await systems.setUserProperty(systemsUser, 'gamesSub', await games.getUserId(gamesUser));
+  await games.setUserProperty(gamesUser, 'meshSub', '');
 });
 
 Given('user {string} is removed from mesh-games-admin on threewizards Casdoor', async ({}, username: string) => {

@@ -90,7 +90,7 @@ class CasdoorClientSetRoleMembersTest {
                 .expectError(IllegalStateException.class).verify();
         StepVerifier.create(casdoor.client().getUser("alice"))
                 .expectError(IllegalStateException.class).verify();
-        StepVerifier.create(casdoor.client().findUsersByProperty("meshSub", "s"))
+        StepVerifier.create(casdoor.client().getUserById("some-id"))
                 .expectError(IllegalStateException.class).verify();
     }
 
@@ -118,16 +118,20 @@ class CasdoorClientSetRoleMembersTest {
     }
 
     @Test
-    void findUsersByProperty_isExact_notTheServersSubstringMatch() {
+    void getUserById_isAPointRead_inThisOrganizationOnly() {
         FakeCasdoor casdoor = new FakeCasdoor(ORG)
-                .user("exact", "1", Map.of("meshSub", "sub"))
-                .user("longer", "2", Map.of("meshSub", "sub-2"))
-                .user("otherkey", "3", Map.of("note", "sub"))
-                .user("noprops", "4", null);
+                .user("alice", "id-a", Map.of("meshSub", "s1"))
+                .foreignUser("built-in", "admin", "id-builtin", Map.of("meshSub", "s1"));
 
-        StepVerifier.create(casdoor.client().findUsersByProperty("meshSub", "sub"))
-                .assertNext(list -> assertThat(list).extracting(CasdoorClient.User::name)
-                        .containsExactly("exact"))
-                .verifyComplete();
+        StepVerifier.create(casdoor.client().getUserById("id-a"))
+                .assertNext(u -> {
+                    assertThat(u.name()).isEqualTo("alice");
+                    assertThat(u.properties()).containsEntry("meshSub", "s1");
+                }).verifyComplete();
+        // Casdoor finds the id across organizations (measured on 3.80.0); the client must not.
+        StepVerifier.create(casdoor.client().getUserById("id-builtin")).verifyComplete();
+        StepVerifier.create(casdoor.client().getUserById("id-missing")).verifyComplete();
+        assertThat(casdoor.requests).containsOnly("/api/get-user");
     }
+
 }

@@ -8,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -40,9 +39,9 @@ import java.util.Set;
  *       member list by read-modify-write of the whole role object
  *       (Casdoor has no "add/remove one member" call, and a partial
  *       update-role body resets every other column).</li>
- *   <li>{@link #getUser(String)} / {@link #findUsersByProperty(String, String)}
- *       — resolve the explicit cross-realm link the GM sync maps
- *       through.</li>
+ *   <li>{@link #getUser(String)} / {@link #getUserById(String)}
+ *       — resolve the reciprocal cross-realm link the GM sync maps
+ *       through (each side read as a point lookup).</li>
  * </ul>
  */
 public class CasdoorClient {
@@ -213,8 +212,12 @@ public class CasdoorClient {
     /**
      * A Casdoor user as the GM sync needs it: the stable {@code id} (the
      * JWT {@code sub}), whether the account is usable, and its
-     * {@code properties} map (admin-only by Casdoor's default account
-     * items, which is what makes a property safe to use as a link).
+     * {@code properties} map. On casbin/casdoor:3.80.0 a user can write
+     * their OWN properties ({@code update-user?columns=properties} on their
+     * own session succeeds even with the account item's modify rule set to
+     * Admin; measured 2026-11-04), so a property is a statement by that
+     * user, not by an admin. The GM sync therefore trusts a link only when
+     * BOTH users' properties point at each other.
      */
     public record User(String name, String id, boolean forbidden, boolean deleted,
                        Map<String, String> properties) {
@@ -238,35 +241,35 @@ public class CasdoorClient {
     }
 
     /**
-     * Find the users in this organization whose {@code properties[key]}
-     * equals {@code value} EXACTLY. Casdoor's {@code field}/{@code value}
-     * filter on {@code get-users} is a SQL {@code LIKE %value%} over the
-     * serialized properties column, so it is used only to narrow the page;
-     * the exact key/value match is done here.
+     * Read one user by its stable {@code id} (the JWT {@code sub}), through
+     * {@code GET /api/get-user?userId=<id>}. Resolves EMPTY when no such
+     * user exists (Casdoor 3.80.0 answers {@code status:"ok", data:null})
+     * and ALSO when the user belongs to another organization: measured on
+     * 3.80.0, {@code userId} is looked up across every organization on the
+     * server, so a link pointing at a user outside this organization must
+     * not resolve. Errors when Casdoor rejects the read.
+     *
+     * <p>This is a point read, not a search: a search by property value
+     * ({@code get-users?field=properties&value=...}) is a {@code LIKE}
+     * over a page of 50, so anyone able to create accounts could push the
+     * real one off the page.
      */
-    public Mono<List<User>> findUsersByProperty(String key, String value) {
+    public Mono<User> getUserById(String id) {
         return http.get()
-                .uri(uri -> uri.path("/api/get-users")
-                        .queryParam("owner", organization)
-                        .queryParam("p", 1)
-                        .queryParam("pageSize", 50)
-                        .queryParam("field", "properties")
-                        .queryParam("value", value)
+                .uri(uri -> uri.path("/api/get-user")
+                        .queryParam("userId", id)
                         .build())
                 .retrieve()
                 .bodyToMono(Map.class)
-                .map(body -> requireOk(body, "get-users"))
-                .map(body -> {
-                    List<User> out = new ArrayList<>();
-                    if (body.get("data") instanceof List<?> rows) {
-                        for (Object row : rows) {
-                            User u = toUser(row);
-                            if (u != null && value.equals(u.properties().get(key))) {
-                                out.add(u);
-                            }
-                        }
+                .map(body -> requireOk(body, "get-user by id"))
+                .flatMap(body -> {
+                    if (!(body.get("data") instanceof Map<?, ?> m)) return Mono.empty();
+                    if (!organization.equals(m.get("owner"))) {
+                        log.warn("[casdoor:{}] user id {} belongs to organization '{}', not '{}'; ignoring",
+                                label, id, m.get("owner"), organization);
+                        return Mono.empty();
                     }
-                    return out;
+                    return Mono.justOrEmpty(toUser(m));
                 });
     }
 

@@ -117,8 +117,11 @@ export class CasdoorAdmin {
     return (await this.getUser(username)).id as string;
   }
 
-  /** Write one property. Admin-only on Casdoor's default account items; this
-   *  stands in for the real link flow, which is what may write `meshSub`. */
+  /** Write one property through the application credentials. This stands
+   *  in for the real link flow, in which each user writes their OWN side (a
+   *  user can write their own properties on Casdoor 3.80.0). The sync trusts
+   *  a pair only when `meshSub` on the games account and `gamesSub` on the
+   *  systems account point at each other. */
   async setUserProperty(username: string, key: string, value: string): Promise<void> {
     const user = await this.getUser(username);
     const properties = { ...((user.properties as Record<string, string>) ?? {}), [key]: value };

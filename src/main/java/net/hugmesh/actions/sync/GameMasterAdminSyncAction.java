@@ -33,6 +33,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@code admin} member list every tick, removed all of them within one
  * interval.
  *
+ * <p><b>Off by default.</b> {@code app.actions.game-master-sync.enabled}
+ * ({@code GM_SYNC_ENABLED}) defaults to {@code false}: a disabled sync
+ * logs one INFO at startup and every tick returns before reading either
+ * Casdoor. The operator turns it on per deployment.
+ *
  * <p><b>Owned-role guard.</b> The configured games role must start with
  * {@value #OWNED_ROLE_PREFIX}. Anything else (in particular {@code admin},
  * {@code player}, {@code mod}, {@code publisher}, {@code uploader},
@@ -40,21 +45,38 @@ import java.util.concurrent.atomic.AtomicReference;
  * WARN, counts {@code actions.gm_sync.errors}, and reads and writes nothing.
  * The service still boots (it also serves the registration endpoints).
  *
- * <p><b>Identity mapping is an explicit link, never a username.</b> The
+ * <p><b>Identity mapping is a RECIPROCAL link, never a username.</b> The
  * games realm has its own self-signup, so {@code threewizards/alice} can be
- * a different person from {@code hugmesh/alice}. Each tick:
+ * a different person from {@code hugmesh/alice}. On casbin/casdoor:3.80.0 a
+ * user can write their OWN {@code properties} ({@code update-user?columns=
+ * properties} on their own session succeeds even with the Properties
+ * account item set to admin-only; measured 2026-11-04), so a single
+ * pointer is a claim by whoever owns that account and proves nothing about
+ * the other account. A pair (systems user M, games user G) counts only when
+ * both sides claim each other:
+ *
+ * <ul>
+ *   <li>{@code M.properties.<reverse-link-property>} ({@code gamesSub} by
+ *       default) equals {@code G.id}, and</li>
+ *   <li>{@code G.properties.<link-property>} ({@code meshSub} by default)
+ *       equals {@code M.id}.</li>
+ * </ul>
+ *
+ * Each owner can only write their own side, so neither a games player
+ * pointing at a mesh admin's {@code sub} (escalation) nor a second games
+ * account pointing at an already-linked admin's {@code sub} (which used to
+ * make the match ambiguous and revoke the real admin) changes anything:
+ * the sync follows M's pointer to exactly one games account and checks
+ * that account's pointer back. Each tick:
  *
  * <ol>
  *   <li>Read the systems role members ({@code <org>/<username>}).</li>
- *   <li>Resolve each one to its systems user id (the JWT {@code sub}).
+ *   <li>Resolve each one to its systems user (id = the JWT {@code sub}).
  *       Unknown, forbidden or deleted systems users are skipped.</li>
- *   <li>Find the games-realm user whose
- *       {@code properties.<link-property>} ({@code meshSub} by default)
- *       equals that id EXACTLY. Casdoor's default account items make
- *       {@code Properties} admin-modifiable only (measured on 3.80.0: a
- *       user's own update-user silently drops a properties change), so
- *       only an admin-side link flow can write it. No linked user, more
- *       than one, or a forbidden/deleted one: skip and count
+ *   <li>Follow {@code M.properties.gamesSub} to the games user with that
+ *       id ({@link CasdoorClient#getUserById}, a point read in the games
+ *       organization). No pointer, no such user, a forbidden/deleted one,
+ *       or one whose {@code meshSub} is not {@code M.id}: skip and count
  *       {@code actions.gm_sync.unlinked}. A bare name is never written,
  *       so no dangling member exists for a later sign-up to inherit.</li>
  *   <li>Write the resulting set as the owned role's whole member list,
@@ -93,6 +115,7 @@ public class GameMasterAdminSyncAction {
 
     private final CasdoorClient systems;
     private final CasdoorClient games;
+    private final boolean enabled;
     private final String systemsRoleName;
     private final String gamesRoleName;
     private final String systemsOrg;
@@ -100,6 +123,7 @@ public class GameMasterAdminSyncAction {
     private final RoleChangeNotifier notifier;
     private final String gamesRoleLabel;
     private final String linkProperty;
+    private final String reverseLinkProperty;
     private final boolean gamesRoleOwned;
 
     private final Counter added;
@@ -113,13 +137,16 @@ public class GameMasterAdminSyncAction {
     public GameMasterAdminSyncAction(
             @Qualifier("systemsCasdoorClient") CasdoorClient systemsClient,
             @Qualifier("gamesCasdoorClient") CasdoorClient gamesClient,
+            @Value("${app.actions.game-master-sync.enabled:false}") boolean enabled,
             @Value("${app.actions.game-master-sync.systems-role:game-master}") String systemsRoleName,
             @Value("${app.actions.game-master-sync.games-role:mesh-games-admin}") String gamesRoleName,
             @Value("${app.actions.game-master-sync.link-property:meshSub}") String linkProperty,
+            @Value("${app.actions.game-master-sync.reverse-link-property:gamesSub}") String reverseLinkProperty,
             RoleChangeNotifier notifier,
             MeterRegistry registry) {
         this.systems = systemsClient;
         this.games   = gamesClient;
+        this.enabled = enabled;
         this.systemsRoleName = systemsRoleName;
         this.gamesRoleName   = gamesRoleName;
         this.systemsOrg = systemsClient.organization();
@@ -127,6 +154,7 @@ public class GameMasterAdminSyncAction {
         this.notifier   = notifier;
         this.gamesRoleLabel = gamesRoleName + " on hugmesh." + gamesClient.label();
         this.linkProperty = linkProperty;
+        this.reverseLinkProperty = reverseLinkProperty;
         this.gamesRoleOwned = isOwnedRole(gamesRoleName);
         this.added     = Counter.builder("actions.gm_sync.added")
                 .description("Users added to hugmesh.games admin during sync")
@@ -141,7 +169,7 @@ public class GameMasterAdminSyncAction {
                 .description("Sync ticks that failed to read or write Casdoor, or refused an unowned games role")
                 .register(registry);
         this.unlinked  = Counter.builder("actions.gm_sync.unlinked")
-                .description("Systems role members skipped because no single usable games account is linked to them")
+                .description("Systems role members skipped because no usable games account is reciprocally linked to them")
                 .register(registry);
     }
 
@@ -152,10 +180,19 @@ public class GameMasterAdminSyncAction {
                 && roleName.length() > OWNED_ROLE_PREFIX.length();
     }
 
+    /** True when the operator turned the sync on ({@code GM_SYNC_ENABLED=true}). */
+    public boolean enabled() { return enabled; }
+
     @PostConstruct
     void start() {
-        log.info("[gm-sync] configured: systems={} games={} systemsRole={} gamesRole={} linkProperty={}",
-                systems.label(), games.label(), systemsRoleName, gamesRoleName, linkProperty);
+        if (!enabled) {
+            log.info("[gm-sync] DISABLED (app.actions.game-master-sync.enabled=false, the default); "
+                    + "no tick reads or writes either Casdoor. Set GM_SYNC_ENABLED=true to turn it on.");
+            return;
+        }
+        log.info("[gm-sync] configured: systems={} games={} systemsRole={} gamesRole={} linkProperty={} "
+                + "reverseLinkProperty={}", systems.label(), games.label(), systemsRoleName, gamesRoleName,
+                linkProperty, reverseLinkProperty);
         if (!gamesRoleOwned) {
             log.error("[gm-sync] REFUSING games role '{}': the sync replaces the whole member list, so it "
                     + "only writes a role it owns (name starting '{}', e.g. mesh-games-admin). Every tick "
@@ -171,6 +208,10 @@ public class GameMasterAdminSyncAction {
         fixedDelayString = "${app.actions.game-master-sync.interval-ms:60000}",
         initialDelayString = "${app.actions.game-master-sync.initial-delay-ms:5000}")
     public void runTick() {
+        if (!enabled) {
+            log.trace("[gm-sync] disabled; tick skipped");
+            return;
+        }
         log.debug("[gm-sync] tick start");
         runOnce()
             .doOnSuccess(v -> lastSuccessAt.set(Instant.now()))
@@ -184,6 +225,9 @@ public class GameMasterAdminSyncAction {
 
     @CircuitBreaker(name = "casdoor")
     Mono<Void> runOnce() {
+        if (!enabled) {
+            return Mono.empty();
+        }
         if (!gamesRoleOwned) {
             return Mono.error(new IllegalStateException("games role '" + gamesRoleName
                     + "' is not owned by the sync (must start with '" + OWNED_ROLE_PREFIX + "'); nothing written"));
@@ -200,7 +244,7 @@ public class GameMasterAdminSyncAction {
     }
 
     /**
-     * Map systems role members to games member ids through the explicit
+     * Map systems role members to games member ids through the reciprocal
      * link. Key = games member id ({@code <gamesOrg>/<name>}), value = the
      * systems subject it is linked to. Read errors propagate (the tick
      * fails, nothing is written).
@@ -220,22 +264,44 @@ public class GameMasterAdminSyncAction {
                         unlinked.increment();
                         log.warn("[gm-sync] skipping systems member '{}': no usable systems account", member);
                     }))
-                    .flatMap(sysUser -> games.findUsersByProperty(linkProperty, sysUser.id())
-                        .flatMap(matches -> {
-                            List<CasdoorClient.User> usable = matches.stream()
-                                    .filter(CasdoorClient.User::usable).toList();
-                            if (usable.size() != 1 || matches.size() != 1) {
-                                unlinked.increment();
-                                log.info("[gm-sync] skipping systems member '{}': {} games account(s) linked "
-                                        + "via {} ({} usable); need exactly one", member, matches.size(),
-                                        linkProperty, usable.size());
-                                return Mono.<Map.Entry<String, String>>empty();
-                            }
-                            return Mono.just(Map.entry(gamesOrg + "/" + usable.get(0).name(), sysUser.id()));
-                        }));
+                    .flatMap(sysUser -> resolveReciprocal(member, sysUser));
             })
             .collectMap(Map.Entry::getKey, Map.Entry::getValue, LinkedHashMap::new)
             .map(m -> (Map<String, String>) m);
+    }
+
+    /**
+     * Follow the systems user's pointer to one games account and accept it
+     * only when that account points back. Empty (and counted as unlinked)
+     * otherwise.
+     */
+    private Mono<Map.Entry<String, String>> resolveReciprocal(String member, CasdoorClient.User sysUser) {
+        String gamesId = sysUser.properties().get(reverseLinkProperty);
+        if (gamesId == null || gamesId.isBlank()) {
+            unlinked.increment();
+            log.info("[gm-sync] skipping systems member '{}': no {} on the systems account", member,
+                    reverseLinkProperty);
+            return Mono.empty();
+        }
+        return games.getUserById(gamesId)
+            .filter(gamesUser -> {
+                if (!gamesUser.usable()) {
+                    log.info("[gm-sync] skipping systems member '{}': linked games account '{}' is not usable",
+                            member, gamesUser.name());
+                    return false;
+                }
+                if (!sysUser.id().equals(gamesUser.properties().get(linkProperty))) {
+                    log.info("[gm-sync] skipping systems member '{}': games account '{}' does not point back "
+                            + "via {}", member, gamesUser.name(), linkProperty);
+                    return false;
+                }
+                return true;
+            })
+            .switchIfEmpty(Mono.fromRunnable(() -> {
+                unlinked.increment();
+                log.info("[gm-sync] skipping systems member '{}': no reciprocally linked games account", member);
+            }))
+            .map(gamesUser -> Map.entry(gamesOrg + "/" + gamesUser.name(), sysUser.id()));
     }
 
     /** The username of a systems member id, or null when it names

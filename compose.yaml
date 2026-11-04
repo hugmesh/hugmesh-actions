@@ -111,6 +111,8 @@ services:
       CASDOOR_GAMES_CLIENT_ID:       ${CASDOOR_GAMES_CLIENT_ID:-hugmesh-actions}
       CASDOOR_GAMES_CLIENT_SECRET:   ${CASDOOR_GAMES_CLIENT_SECRET:-}
       CASDOOR_GAMES_ORG:             threewizards
+      # The sync is OFF by default; this dev stack exists to exercise it.
+      GM_SYNC_ENABLED:               "true"
       # A short tick so e2e/features/sync scenarios cross a real one (production: 60 s).
       GM_SYNC_INTERVAL_MS:           ${GM_SYNC_INTERVAL_MS:-2000}
     ports:
