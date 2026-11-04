@@ -20,7 +20,11 @@ name: Release image
 #                                     published) moves :X.Y but not :latest, and
 #                                     its GitHub release is not marked Latest.
 #   workflow_dispatch on main, a release/X.Y branch or a v* tag
-#                                  -> the same as the push (the re-run path)
+#                                  -> the same as the push. For a tag this is a
+#                                     re-run only while :X.Y.Z is NOT in the
+#                                     registry: once it is, the overwrite guard
+#                                     refuses the run (nothing is pushed and no
+#                                     GitHub Release is made). Fix forward instead.
 #   anything else                  -> refused by the `version` job (this includes
 #                                     release/<anything that is not X.Y>)
 #

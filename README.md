@@ -666,7 +666,7 @@ which the `version` job runs first):
 | push of tag `vX.Y.Z-beta.N` (commit on `main`) | `:X.Y.Z-beta.N`, `:beta`, `:sha-<12 hex>` | prerelease, not latest |
 | push of tag `vX.Y.Z` (commit on `release/X.Y`), newest stable line | `:X.Y.Z`, `:X.Y`, `:latest`, `:sha-<12 hex>` | release, marked latest |
 | push of tag `vX.Y.Z` on an older stable line | `:X.Y.Z`, `:X.Y`, `:sha-<12 hex>` | release, not latest |
-| `workflow_dispatch` on `main`, `release/X.Y` or a `v*` tag | same as the push | created if missing |
+| `workflow_dispatch` on `main`, `release/X.Y` or a `v*` tag | same as the push | same as the push |
 | anything else (another `release/*` name, an `-rc.N` tag, ...) | refused | none |
 
 The first job (`version`) refuses a SNAPSHOT, a tag that does not equal the pom
@@ -680,9 +680,11 @@ tag is checked to resolve to the signed digest.
 
 To publish a beta: merge the version bump to `main`, then tag that commit
 `vX.Y.Z-beta.N` (annotated) and push the tag. To publish a stable: merge the
-version bump to `release/X.Y`, then tag that commit `vX.Y.Z`. To re-run a
-release, dispatch the workflow on the tag
-(`gh workflow run release.yml --ref v<version>`).
+version bump to `release/X.Y`, then tag that commit `vX.Y.Z`. Dispatching the
+workflow on a tag (`gh workflow run release.yml --ref v<version>`) re-runs it
+only while `:X.Y.Z` is not in the registry; once it is, the overwrite guard
+refuses the run. A published version is fixed forward (the next `-beta.N`, or
+the next patch on `release/X.Y`), never rebuilt.
 
 **Runner.** Every job uses the runner in the repository variable
 `RUNS_ON_PUBLISH` (a JSON array such as `["self-hosted","Linux","X64"]`), but
