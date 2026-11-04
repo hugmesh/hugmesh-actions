@@ -64,7 +64,8 @@ Feature: GameMasterAdminSyncAction — cross-stack role propagation
     Given the actions service is healthy
     And user "frank" exists on hugmesh Casdoor
     And user "eve" exists on threewizards Casdoor
-    And threewizards user "eve" points meshSub at hugmesh user "frank" without a pointer back
+    And hugmesh user "frank" has no gamesSub
+    And threewizards user "eve" claims hugmesh user "frank" via meshSub
     When user "frank" is granted game-master on hugmesh Casdoor
     And the sync action ticks once
     Then user "eve" has NO mesh-games-admin role on threewizards Casdoor
@@ -89,7 +90,7 @@ Feature: GameMasterAdminSyncAction — cross-stack role propagation
     And the sync action ticks once
     And user "henry-plays" has the mesh-games-admin role on threewizards Casdoor
     And user "imposter" exists on threewizards Casdoor
-    And threewizards user "imposter" points meshSub at hugmesh user "henry" without a pointer back
+    And threewizards user "imposter" claims hugmesh user "henry" via meshSub
     When the gm_sync counters are read
     And the sync action ticks once
     Then user "henry-plays" has the mesh-games-admin role on threewizards Casdoor

@@ -32,11 +32,16 @@ Given('threewizards user {string} and hugmesh user {string} are linked to each o
   await systems.setUserProperty(systemsUser, 'gamesSub', await games.getUserId(gamesUser));
 });
 
-Given('threewizards user {string} points meshSub at hugmesh user {string} without a pointer back',
+// Games side ONLY: what a player can do to their own account. It must not
+// touch the systems user, who may be reciprocally linked to someone else.
+Given('threewizards user {string} claims hugmesh user {string} via meshSub',
       async ({}, gamesUser: string, systemsUser: string) => {
   const { systems, games } = casdoorClients();
   await games.setUserProperty(gamesUser, 'meshSub', await systems.getUserId(systemsUser));
-  await systems.setUserProperty(systemsUser, 'gamesSub', '');
+});
+
+Given('hugmesh user {string} has no gamesSub', async ({}, systemsUser: string) => {
+  await casdoorClients().systems.setUserProperty(systemsUser, 'gamesSub', '');
 });
 
 Given('hugmesh user {string} points gamesSub at threewizards user {string} without a pointer back',
