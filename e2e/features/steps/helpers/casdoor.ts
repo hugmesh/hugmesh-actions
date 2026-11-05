@@ -39,9 +39,10 @@ export class CasdoorAdmin {
       const url = `${this.cfg.baseUrl}/api/get-user?id=${this.cfg.organization}/${username}`;
       const r = await api.get(url, { headers: { Authorization: this.auth() } });
       const body = await r.json().catch(() => ({}));
-      if (body?.data) return;  // already there
+      if (body?.status !== 'ok') throw new Error(`get-user ${username}: ${body?.msg}`);
+      if (body.data) return;  // already there
 
-      await api.post(`${this.cfg.baseUrl}/api/add-user`, {
+      const added = await api.post(`${this.cfg.baseUrl}/api/add-user`, {
         headers: { Authorization: this.auth(), 'Content-Type': 'application/json' },
         data: {
           owner: this.cfg.organization,
@@ -52,33 +53,87 @@ export class CasdoorAdmin {
           password: resolveE2ePassword(username),
         },
       });
+      const addedBody = await added.json().catch(() => ({}));
+      if (addedBody?.status !== 'ok') throw new Error(`add-user ${username}: ${addedBody?.msg}`);
+    } finally {
+      await api.dispose();
+    }
+  }
+
+  async getRole(roleName: string): Promise<Record<string, unknown> | null> {
+    const api = await request.newContext();
+    try {
+      const url = `${this.cfg.baseUrl}/api/get-role?id=${this.cfg.organization}/${roleName}`;
+      const r = await api.get(url, { headers: { Authorization: this.auth() } });
+      const body = await r.json().catch(() => ({}));
+      if (body?.status !== 'ok') throw new Error(`get-role ${roleName}: ${body?.msg}`);
+      return body.data ?? null;
     } finally {
       await api.dispose();
     }
   }
 
   async getRoleMembers(roleName: string): Promise<string[]> {
+    const role = await this.getRole(roleName);
+    return role && Array.isArray(role.users) ? (role.users as string[]) : [];
+  }
+
+  /** Read-modify-write: Casdoor's update-role writes every column of the
+   *  posted object, so a partial body would disable the role. */
+  async setRoleMembers(roleName: string, users: string[]): Promise<void> {
+    const role = await this.getRole(roleName);
+    if (!role) throw new Error(`role ${this.cfg.organization}/${roleName} is not seeded`);
     const api = await request.newContext();
     try {
-      const url = `${this.cfg.baseUrl}/api/get-role?id=${this.cfg.organization}/${roleName}`;
-      const r = await api.get(url, { headers: { Authorization: this.auth() } });
+      const url = `${this.cfg.baseUrl}/api/update-role?id=${this.cfg.organization}/${roleName}`;
+      const r = await api.post(url, {
+        headers: { Authorization: this.auth(), 'Content-Type': 'application/json' },
+        data: { ...role, users },
+      });
       const body = await r.json().catch(() => ({}));
-      const data = body?.data;
-      if (data && Array.isArray(data.users)) return data.users as string[];
-      return [];
+      if (body?.status !== 'ok') throw new Error(`update-role ${roleName}: ${body?.msg}`);
     } finally {
       await api.dispose();
     }
   }
 
-  async setRoleMembers(roleName: string, users: string[]): Promise<void> {
+  private async getUser(username: string): Promise<Record<string, unknown>> {
     const api = await request.newContext();
     try {
-      const url = `${this.cfg.baseUrl}/api/update-role?id=${this.cfg.organization}/${roleName}`;
-      await api.post(url, {
+      const url = `${this.cfg.baseUrl}/api/get-user?id=${this.cfg.organization}/${username}`;
+      const r = await api.get(url, { headers: { Authorization: this.auth() } });
+      const body = await r.json().catch(() => ({}));
+      if (body?.status !== 'ok' || !body.data) {
+        throw new Error(`get-user ${username}: ${body?.msg || 'no such user'}`);
+      }
+      return body.data;
+    } finally {
+      await api.dispose();
+    }
+  }
+
+  /** The user's stable id: what their tokens carry as `sub`. */
+  async getUserId(username: string): Promise<string> {
+    return (await this.getUser(username)).id as string;
+  }
+
+  /** Write one property through the application credentials. This stands
+   *  in for the real link flow, in which each user writes their OWN side (a
+   *  user can write their own properties on Casdoor 3.80.0). The sync trusts
+   *  a pair only when `meshSub` on the games account and `gamesSub` on the
+   *  systems account point at each other. */
+  async setUserProperty(username: string, key: string, value: string): Promise<void> {
+    const user = await this.getUser(username);
+    const properties = { ...((user.properties as Record<string, string>) ?? {}), [key]: value };
+    const api = await request.newContext();
+    try {
+      const url = `${this.cfg.baseUrl}/api/update-user?id=${this.cfg.organization}/${username}`;
+      const r = await api.post(url, {
         headers: { Authorization: this.auth(), 'Content-Type': 'application/json' },
-        data: { owner: this.cfg.organization, name: roleName, users },
+        data: { ...user, properties },
       });
+      const body = await r.json().catch(() => ({}));
+      if (body?.status !== 'ok') throw new Error(`update-user ${username}: ${body?.msg}`);
     } finally {
       await api.dispose();
     }

@@ -42,12 +42,26 @@ app:
       organization:  ${CASDOOR_GAMES_ORG:threewizards}
   actions:
     game-master-sync:
+      # DEFAULT OFF. A disabled sync reads and writes neither Casdoor; the
+      # operator turns it on per deployment with GM_SYNC_ENABLED=true once
+      # the games realm seeds the owned role and users have linked accounts.
+      enabled:            ${GM_SYNC_ENABLED:false}
       # 60 s default — propagation latency is "next tick after
       # an admin flips game-master on hugmesh.net".
       interval-ms:        ${GM_SYNC_INTERVAL_MS:60000}
       initial-delay-ms:   ${GM_SYNC_INITIAL_DELAY_MS:5000}
       systems-role:       ${GM_SYNC_SYSTEMS_ROLE:game-master}
-      games-role:         ${GM_SYNC_GAMES_ROLE:admin}
+      # A games role the sync OWNS OUTRIGHT (it replaces the whole member list).
+      # Must start with "mesh-"; anything else (admin, player, ...) is refused.
+      games-role:         ${GM_SYNC_GAMES_ROLE:mesh-games-admin}
+      # The link is RECIPROCAL. A games user's <link-property> names the
+      # systems user id (JWT sub) they claim; a systems user's
+      # <reverse-link-property> names the games user id they claim. A pair
+      # counts only when both point at each other: on Casdoor 3.80.0 a user
+      # can write their own properties, so one pointer alone is just that
+      # user's claim.
+      link-property:         ${GM_SYNC_LINK_PROPERTY:meshSub}
+      reverse-link-property: ${GM_SYNC_REVERSE_LINK_PROPERTY:gamesSub}
     # GitHub-org admin auto-grant. DEFAULT OFF — superadmin opts in by
     # setting GH_ORG_ADMIN_ENABLED=true (or app.actions.gh-org-admin.enabled=true).
     # When disabled: the /api/registration/github-org-admin/evaluate endpoint

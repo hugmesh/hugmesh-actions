@@ -4,10 +4,16 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Thin reactive wrapper around the parts of the Casdoor admin API
@@ -30,11 +36,17 @@ import java.util.Map;
  *   <li>{@link #getRoleMembers(String)} — fetch a role's full
  *       member list (Casdoor's role.users field).</li>
  *   <li>{@link #setRoleMembers(String, List)} — replace a role's
- *       whole member list (Casdoor has no "add/remove one member"
- *       call).</li>
+ *       member list by read-modify-write of the whole role object
+ *       (Casdoor has no "add/remove one member" call, and a partial
+ *       update-role body resets every other column).</li>
+ *   <li>{@link #getUser(String)} / {@link #getUserById(String)}
+ *       — resolve the reciprocal cross-realm link the GM sync maps
+ *       through (each side read as a point lookup).</li>
  * </ul>
  */
 public class CasdoorClient {
+
+    private static final Logger log = LoggerFactory.getLogger(CasdoorClient.class);
 
     private final WebClient http;
     private final String organization;
@@ -80,26 +92,30 @@ public class CasdoorClient {
 
     /**
      * Read the role's {@code users} array. Each entry is a Casdoor
-     * user identifier in {@code <organization>/<username>} form.
+     * user identifier in {@code <organization>/<username>} form. A role
+     * that does not exist reads as no members. A REJECTED read is an error,
+     * never an empty list: Casdoor answers a bad credential with HTTP 200
+     * and {@code status:"error"} (measured on 3.80.0), and every caller
+     * here diffs against this list, so "empty" would mean "revoke everyone".
      */
-    @SuppressWarnings("unchecked")
     public Mono<List<String>> getRoleMembers(String roleName) {
-        return http.get()
-                .uri(uri -> uri.path("/api/get-role")
-                        .queryParam("id", organization + "/" + roleName)
-                        .build())
-                .retrieve()
-                .bodyToMono(Map.class)
-                .map(body -> {
-                    Object data = body.get("data");
-                    if (data instanceof Map<?, ?> m) {
-                        Object users = m.get("users");
-                        if (users instanceof List<?> list) {
-                            return (List<String>) list;
-                        }
-                    }
-                    return List.<String>of();
-                });
+        return getRole(roleName)
+                .map(CasdoorClient::membersOf)
+                .defaultIfEmpty(List.of());
+    }
+
+    /** The {@code users} of a role object from {@link #getRole}. */
+    @SuppressWarnings("unchecked")
+    public static List<String> membersOf(Map<String, Object> role) {
+        return role.get("users") instanceof List<?> list ? (List<String>) list : List.of();
+    }
+
+    /** Fail unless Casdoor reported {@code status:"ok"} (it uses HTTP 200 for errors). */
+    private Map<?, ?> requireOk(Map<?, ?> body, String what) {
+        if (!"ok".equals(body.get("status"))) {
+            throw new IllegalStateException(what + " on " + label + " Casdoor failed: " + body.get("msg"));
+        }
+        return body;
     }
 
     public Flux<String> listUsersInRole(String roleName) {
@@ -107,23 +123,171 @@ public class CasdoorClient {
     }
 
     /**
-     * Replace the role's user list (Casdoor's role-update endpoint is
-     * authoritative — there's no "add one member" call). The action
-     * computes the desired list and POSTs it whole.
+     * Read the role object exactly as Casdoor returns it ({@code data} of
+     * {@code /api/get-role}). Resolves EMPTY when the role does not exist:
+     * Casdoor 3.80.0 answers {@code status:"ok", data:null} for a missing
+     * role. Errors when Casdoor rejects the read.
      */
     @SuppressWarnings("unchecked")
-    public Mono<Boolean> setRoleMembers(String roleName, List<String> users) {
-        return http.post()
-                .uri(uri -> uri.path("/api/update-role")
+    public Mono<Map<String, Object>> getRole(String roleName) {
+        return http.get()
+                .uri(uri -> uri.path("/api/get-role")
                         .queryParam("id", organization + "/" + roleName)
                         .build())
-                .bodyValue(Map.of(
-                        "owner", organization,
-                        "name",  roleName,
-                        "users", users))
                 .retrieve()
                 .bodyToMono(Map.class)
-                .map(body -> "ok".equals(body.get("status")));
+                .map(body -> requireOk(body, "get-role " + roleName))
+                .flatMap(body -> body.get("data") instanceof Map<?, ?> m
+                        ? Mono.just((Map<String, Object>) m)
+                        : Mono.<Map<String, Object>>empty());
+    }
+
+    /**
+     * Replace the role's user list and nothing else. Casdoor has no
+     * "add one member" call, and its {@code update-role} writes EVERY
+     * column of the posted object. Measured on casbin/casdoor:3.80.0
+     * (the version the cluster pins): posting a partial
+     * {@code {owner,name,users}} body set {@code isEnabled=false} and
+     * cleared {@code displayName}, {@code description}, {@code roles} and
+     * {@code domains}. So this is a read-modify-write:
+     *
+     * <ol>
+     *   <li>GET the full role. A missing role is an ERROR (the role must
+     *       be seeded; this client never creates one).</li>
+     *   <li>Refuse to write a role whose {@code isEnabled} is not
+     *       {@code true}: the operator disabled it, and a write would not
+     *       change that (resolves {@code false}, no POST).</li>
+     *   <li>Copy the object, replace only {@code users}, POST it whole.</li>
+     *   <li>Read the role back. Resolves {@code true} only when
+     *       {@code status} was {@code ok}, the read-back member set equals
+     *       {@code users}, and {@code isEnabled} is still {@code true}.
+     *       Casdoor answers {@code data:"Affected"} even when nothing
+     *       changed, so the response alone proves nothing.</li>
+     * </ol>
+     */
+    public Mono<Boolean> setRoleMembers(String roleName, List<String> users) {
+        String id = organization + "/" + roleName;
+        return getRole(roleName)
+                .switchIfEmpty(Mono.error(new IllegalStateException(
+                        "role " + id + " does not exist on " + label + " Casdoor; seed it first")))
+                .flatMap(role -> {
+                    if (!Boolean.TRUE.equals(role.get("isEnabled"))) {
+                        log.warn("[casdoor:{}] role {} is disabled; refusing to write its members", label, id);
+                        return Mono.just(false);
+                    }
+                    Map<String, Object> next = new LinkedHashMap<>(role);
+                    next.put("users", List.copyOf(users));
+                    return http.post()
+                            .uri(uri -> uri.path("/api/update-role")
+                                    .queryParam("id", id)
+                                    .build())
+                            .bodyValue(next)
+                            .retrieve()
+                            .bodyToMono(Map.class)
+                            .flatMap(body -> {
+                                if (!"ok".equals(body.get("status"))) {
+                                    log.warn("[casdoor:{}] update-role {} refused: {}", label, id, body.get("msg"));
+                                    return Mono.just(false);
+                                }
+                                return getRole(roleName)
+                                        .map(after -> confirmWrite(id, after, users))
+                                        .defaultIfEmpty(false);
+                            });
+                });
+    }
+
+    private boolean confirmWrite(String id, Map<String, Object> after, List<String> wanted) {
+        Object enabled = after.get("isEnabled");
+        Object got = after.get("users");
+        Set<Object> gotSet = got instanceof List<?> l ? new HashSet<>(l) : Set.of();
+        boolean membersMatch = gotSet.equals(new HashSet<>(wanted));
+        if (!Boolean.TRUE.equals(enabled) || !membersMatch) {
+            log.error("[casdoor:{}] update-role {} read-back mismatch: isEnabled={} membersMatch={}",
+                    label, id, enabled, membersMatch);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * A Casdoor user as the GM sync needs it: the stable {@code id} (the
+     * JWT {@code sub}), whether the account is usable, and its
+     * {@code properties} map. On casbin/casdoor:3.80.0 a user can write
+     * their OWN properties ({@code update-user?columns=properties} on their
+     * own session succeeds even with the account item's modify rule set to
+     * Admin; measured 2026-11-04), so a property is a statement by that
+     * user, not by an admin. The GM sync therefore trusts a link only when
+     * BOTH users' properties point at each other.
+     */
+    public record User(String name, String id, boolean forbidden, boolean deleted,
+                       Map<String, String> properties) {
+        public boolean usable() { return !forbidden && !deleted && id != null && !id.isBlank(); }
+    }
+
+    /**
+     * Read one user by username in this organization. Resolves EMPTY
+     * when the user does not exist (Casdoor answers {@code data:null});
+     * errors when Casdoor rejects the read.
+     */
+    public Mono<User> getUser(String username) {
+        return http.get()
+                .uri(uri -> uri.path("/api/get-user")
+                        .queryParam("id", organization + "/" + username)
+                        .build())
+                .retrieve()
+                .bodyToMono(Map.class)
+                .map(body -> requireOk(body, "get-user " + username))
+                .flatMap(body -> Mono.justOrEmpty(toUser(body.get("data"))));
+    }
+
+    /**
+     * Read one user by its stable {@code id} (the JWT {@code sub}), through
+     * {@code GET /api/get-user?userId=<id>}. Resolves EMPTY when no such
+     * user exists (Casdoor 3.80.0 answers {@code status:"ok", data:null})
+     * and ALSO when the user belongs to another organization: measured on
+     * 3.80.0, {@code userId} is looked up across every organization on the
+     * server, so a link pointing at a user outside this organization must
+     * not resolve. Errors when Casdoor rejects the read.
+     *
+     * <p>This is a point read, not a search: a search by property value
+     * ({@code get-users?field=properties&value=...}) is a {@code LIKE}
+     * over a page of 50, so anyone able to create accounts could push the
+     * real one off the page.
+     */
+    public Mono<User> getUserById(String id) {
+        return http.get()
+                .uri(uri -> uri.path("/api/get-user")
+                        .queryParam("userId", id)
+                        .build())
+                .retrieve()
+                .bodyToMono(Map.class)
+                .map(body -> requireOk(body, "get-user by id"))
+                .flatMap(body -> {
+                    if (!(body.get("data") instanceof Map<?, ?> m)) return Mono.empty();
+                    if (!organization.equals(m.get("owner"))) {
+                        log.warn("[casdoor:{}] user id {} belongs to organization '{}', not '{}'; ignoring",
+                                label, id, m.get("owner"), organization);
+                        return Mono.empty();
+                    }
+                    return Mono.justOrEmpty(toUser(m));
+                });
+    }
+
+    static User toUser(Object data) {
+        if (!(data instanceof Map<?, ?> m) || !(m.get("name") instanceof String name) || name.isBlank()) {
+            return null;
+        }
+        Map<String, String> props = new LinkedHashMap<>();
+        if (m.get("properties") instanceof Map<?, ?> p) {
+            p.forEach((k, v) -> {
+                if (k instanceof String ks && v instanceof String vs) props.put(ks, vs);
+            });
+        }
+        return new User(name,
+                m.get("id") instanceof String id ? id : null,
+                Boolean.TRUE.equals(m.get("isForbidden")),
+                Boolean.TRUE.equals(m.get("isDeleted")),
+                Map.copyOf(props));
     }
 
     /**
